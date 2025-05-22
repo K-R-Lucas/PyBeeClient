@@ -21,7 +21,7 @@ drone_show = Case(
 
 drone_show.add_commands(
     Calibrate(),
-    Takeoff().add_rgb((255, 0, 0)).
+    Takeoff().add_rgb((255, 0, 0)),
     Move3D((250, 250, 250), 2.0),
     Land().add_rgb((0, 0, 255))
 )
