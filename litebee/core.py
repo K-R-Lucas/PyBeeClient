@@ -161,7 +161,7 @@ class Drone(Command):
 class Case(Command):
     """
     Initialize a new light show.
-    The UUID is randomly generated and the version number is set to 1.3.11
+    By default, the UUID is randomly generated and the version number is set to 1.3.11
     """
     __slots__ = [
         "drone_count",
@@ -172,12 +172,12 @@ class Case(Command):
     ]
 
     def __init__(self, name: str,\
-                 gx: int, gy: int):
-        self.uuid = str(uuid4)
+                 gx: int, gy: int, version: str = "1.3.11", uuid: str = None):
+        self.uuid = uuid or str(uuid4)
         self.name = name
         self.gx = gx
         self.gy = gy
-        self.version = "1.3.11"
+        self.version = version
 
         params = [
             {
