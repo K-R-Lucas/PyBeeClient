@@ -5,7 +5,7 @@ from litebee.commands import *
 from litebee import core
 
 drone_show = core.Case(
-    "Python Test Lightshow", 5, 5
+    "Python Light Show - Circle", 5, 5
 )
 
 for i in range(4):
@@ -43,5 +43,5 @@ for i in range(4):
 
     drone.add_command(Land())
 
-drone_show.save("Python Test Lightshow")
+drone_show.save(drone_show.name)
 
