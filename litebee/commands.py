@@ -99,6 +99,165 @@ class Move3D(Command):
         super().__init__(params)
 
 
+class Around(Command):
+    def __init__(self, pos: tuple[int, int, int], t: float = 10.0, half_num: int = 1, is_clockwise: bool = True):
+        p = Command([
+            {
+                "flag": 0x20,
+                "value": pos[0],
+                "type": "int"
+            },
+            {
+                "flag": 0x28,
+                "value": pos[1],
+                "type": "int"
+            },
+            {
+                "flag": 0x30,
+                "value": pos[2],
+                "type": "int"
+            },
+            {
+                "flag": 0x38,
+                "value": int(is_clockwise),
+                "type": "int"
+            },
+            {
+                "flag": 0x40,
+                "value": half_num,
+                "type": "int"
+            }
+        ])
+
+        params = [
+            {
+                "flag": 842,
+                "value": p,
+                "type": "command"
+            },
+            {
+                "flag": 0x08,
+                "value": 10*t,
+                "type": "int"
+            },
+            {
+                "flag": 0x10,
+                "value": 0x0C,
+                "type": "int"
+            }
+        ]
+
+        super().__init__(params)
+
+
+class AroundH(Command):
+    """
+    Note that instead of a <height> parameter, the <pos> has an x, y, z (height)
+    """
+    def __init__(self, pos: tuple[int, int, int], t: float = 10.0, is_clockwise: bool = True):
+        p = Command([
+            {
+                "flag": 0x20,
+                "value": pos[0],
+                "type": "int"
+            },
+            {
+                "flag": 0x28,
+                "value": pos[1],
+                "type": "int"
+            },
+            {
+                "flag": 0x30,
+                "value": pos[2],
+                "type": "int"
+            },
+            {
+                "flag": 0x38,
+                "value": int(is_clockwise),
+                "type": "int"
+            },
+        ])
+
+        params = [
+            {
+                "flag": 850,
+                "value": p,
+                "type": "command"
+            },
+            {
+                "flag": 0x08,
+                "value": 10*t,
+                "type": "int"
+            },
+            {
+                "flag": 0x10,
+                "value": 0x0D,
+                "type": "int"
+            }
+        ]
+
+        super().__init__(params)
+
+
+class AroundD(Command):
+    """
+    Note that instead of a <height> parameter, the <pos> has an x, y, z (height)
+    """
+    def __init__(self, pos: tuple[int, int, int], t: float = 10.0, degree: int = 0, is_clockwise: bool = True):
+        p = Command([
+            {
+                "flag": 0x20,
+                "value": pos[0],
+                "type": "int"
+            },
+            {
+                "flag": 0x28,
+                "value": pos[1],
+                "type": "int"
+            },
+            {
+                "flag": 0x30,
+                "value": pos[2],
+                "type": "int"
+            },
+            {
+                "flag": 0x38,
+                "value": int(is_clockwise),
+                "type": "int"
+            },
+            {
+                "flag": 0x40,
+                "value": degree,
+                "type": "int"
+            }
+        ])
+
+        params = [
+            {
+                "flag": 866,
+                "value": p,
+                "type": "command"
+            },
+            {
+                "flag": 0x08,
+                "value": 10*t,
+                "type": "int"
+            },
+            {
+                "flag": 0x10,
+                "value": 0x0E,
+                "type": "int"
+            }
+        ]
+
+        super().__init__(params)
+
+
+class Curve:
+    def __init__(self):
+        pass
+
+
 class Land(Command):
     """
     Land the drone. <t> should not be changed from 3 seconds, though it seems to still work.
