@@ -31,7 +31,8 @@ Commands can also be added individually;
 drone_show.add_command(Land())
 """
 
-drone_show.save("Python Light Show")
+# Leaving the save() function empty will use the Case.name instead.
+drone_show.save()
 
 
 ```
