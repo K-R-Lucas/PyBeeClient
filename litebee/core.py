@@ -36,6 +36,15 @@ class Command:
 
         return self
 
+    def add_gradient(self, colour: tuple[int, int, int], t: float = 0.0, flicker: int = 0):
+        self.params.append({
+            "flag": 0x22,
+            "value": RGBGradient(colour, t, flicker),
+            "type": "command"
+        })
+
+        return self
+
     def get_bytes(self):
         params = b''
         for param in self.params:
@@ -108,6 +117,57 @@ class RGB(Command):
         super().__init__(params)
 
 
+class RGBGradient(Command):
+    def __init__(self, colour: tuple[int, int, int], t: float = 0.0, flicker: int = 0):
+        c = Command([
+            {
+                "flag": 0x20,
+                "value": colour[0],
+                "type": "int"
+            },
+            {
+                "flag": 0x28,
+                "value": colour[1],
+                "type": "int"
+            },
+            {
+                "flag": 0x30,
+                "value": colour[2],
+                "type": "int"
+            },
+            {
+                "flag": 0x38,
+                "value": int(flicker > 0),
+                "type": "int"
+            },
+            {
+                "flag": 0x40,
+                "value": flicker,
+                "type": "int"
+            }
+        ])
+
+        params = [
+            {
+                "flag": 882,
+                "value": c,
+                "type": "command"
+            },
+            {
+                "flag": 0x08,
+                "value": 10*t,
+                "type": "int"
+            },
+            {
+                "flag": 0x10,
+                "value": 0x10,
+                "type": "int"
+            }
+        ]
+
+        super().__init__(params)
+
+
 class Drone(Command):
     """
     Initialise drone <number> at position <pos>
@@ -121,12 +181,12 @@ class Drone(Command):
             },
             {
                 "flag": 0x1D,
-                "value": pos[0],
+                "value": 0.01*pos[0],
                 "type": "float"
             },
             {
                 "flag": 0x2D,
-                "value": pos[1],
+                "value": 0.01*pos[1],
                 "type": "float"
             },
             
@@ -235,7 +295,10 @@ class Case(Command):
 
         return drone
     
-    def save(self, file_path: str):
+    def save(self, file_path: str | None = None):
+        if file_path is None:
+            file_path = self.name
+            
         if not file_path.endswith(".bin"):
             file_path += ".bin"
 
