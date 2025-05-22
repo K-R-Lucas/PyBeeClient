@@ -12,11 +12,11 @@ for i in range(3):
     y = 25
     z = 100
 
-    show.add_drone((x/100, y/100)).add_commands(
+    show.add_drone((x, y)).add_commands(
         Calibrate().add_rgb(choice(colours)),
         Takeoff(z),
         Move3D((x, y + random() * 400, z)).add_rgb(choice(colours)),
         Land()
     )
 
-show.save(show.name)
+show.save()

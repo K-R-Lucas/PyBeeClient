@@ -11,16 +11,16 @@ drone_show = core.Case(
 for i in range(4):
     match i:
         case 0:
-            p = (0.75, 0.75)
+            p = (75, 75)
         
         case 1:
-            p = (0.75, 5 - 0.75)
+            p = (75, 500 - 75)
         
         case 2:
-            p = (5 - 0.75, 5 - 0.75)
+            p = (500 - 75, 500 - 75)
         
         case 3:
-            p = (5 - 0.75, 0.75)
+            p = (500 - 75, 75)
     
     start_a = -0.5*(i-2)*pi
     radius = 200
@@ -43,5 +43,5 @@ for i in range(4):
 
     drone.add_command(Land())
 
-drone_show.save(drone_show.name)
+drone_show.save()
 
