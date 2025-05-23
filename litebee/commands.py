@@ -253,11 +253,6 @@ class AroundD(Command):
         super().__init__(params)
 
 
-class Curve:
-    def __init__(self):
-        pass
-
-
 class Land(Command):
     """
     Land the drone. <t> should not be changed from 3 seconds, though it seems to still work.
