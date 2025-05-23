@@ -1,6 +1,8 @@
 class uleb128:
     @staticmethod
     def from_int(input_int: float):
+        assert input_int >= 0
+        
         byte_list = []
         value = int(input_int)
 
