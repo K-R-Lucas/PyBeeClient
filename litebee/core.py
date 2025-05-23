@@ -1,5 +1,6 @@
 from struct import pack
 from uuid import uuid4
+from os import path
 
 from litebee.utils import uleb128
 
@@ -9,11 +10,13 @@ class Command:
     The base class for all commands.
     """
     __slots__ = [
-        "params"
+        "params",
+        "bytes_"
     ]
 
     def __init__(self, params: list[dict]):
         self.params = params
+        self.bytes_ = None
 
     def add_parameter(self, flag: int | None, value: int | bytes):
         self.params.append({
@@ -45,7 +48,10 @@ class Command:
 
         return self
 
-    def get_bytes(self):
+    def get_bytes(self, force_recompile: bool = False):
+        if (not force_recompile) and (self.bytes_ is not None):
+            return self.bytes_
+        
         params = b''
         for param in self.params:
             flag = param["flag"]
@@ -74,6 +80,7 @@ class Command:
             
             params += flag_bytes + value_bytes
 
+        self.bytes_ = params
         return params
     
 
@@ -168,11 +175,16 @@ class RGBGradient(Command):
         super().__init__(params)
 
 
-class Drone(Command):
+class  Drone(Command):
     """
     Initialise drone <number> at position <pos>
     """
+    __slots__ = [
+        "start_pos"
+    ]
+
     def __init__(self, number: int, pos: tuple[float, float]):
+        self.start_pos = pos
         params = [
             {
                 "flag": 0x10,
@@ -228,12 +240,13 @@ class Case(Command):
         "uuid",
         "name",
         "gx", "gy",
-        "version"
+        "version",
+        "start_pos"
     ]
 
     def __init__(self, name: str,\
                  gx: int, gy: int, version: str = "1.3.11", uuid: str = None):
-        self.uuid = uuid or str(uuid4)
+        self.uuid = uuid or str(uuid4())
         self.name = name
         self.gx = gx
         self.gy = gy
@@ -269,15 +282,15 @@ class Case(Command):
 
         self.drone_count = 0
         super().__init__(params)
-    
+
     def add_drone(self, start_pos: tuple[float, float] = None):
         """
         Add a drone to the light show.
         Takes a start position in metres.
         """
         if start_pos is None:
-            x = 0.75 + 0.5*self.drone_count%(self.gx - 2)
-            y = 0.75 + 0.5*self.drone_count//(self.gx - 2)
+            x = 50 + 50*(self.drone_count%(2*self.gx - 1))
+            y = 50 + 50*(self.drone_count//(2*self.gx - 1))
 
         else:
             x, y = start_pos
@@ -294,7 +307,7 @@ class Case(Command):
         )
 
         return drone
-    
+
     def save(self, file_path: str | None = None):
         if file_path is None:
             file_path = self.name
