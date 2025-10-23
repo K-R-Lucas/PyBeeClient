@@ -22,7 +22,9 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: Implementation :: CPython",
 ]
-dependencies = []
+dependencies = [
+  "pygame-ce>=2.5.6"
+]
 
 [project.urls]
 Documentation = "https://github.com/K-R-Lucas/PyBeeClient#readme"

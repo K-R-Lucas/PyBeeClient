@@ -241,16 +241,22 @@ class Case(Command):
         "name",
         "gx", "gy",
         "version",
-        "start_pos"
+        "start_pos",
+        "takeoff_spacing",
+        "takeoff_w",
+        "takeoff_h"
     ]
 
     def __init__(self, name: str,\
-                 gx: int, gy: int, version: str = "1.3.11", uuid: str = None):
+                 gx: int, gy: int, takeoff_spacing: int = 50, version: str = "1.3.11", uuid: str = None):
         self.uuid = uuid or str(uuid4())
         self.name = name
         self.gx = gx
         self.gy = gy
         self.version = version
+        self.takeoff_spacing = takeoff_spacing
+        self.takeoff_w = self.gx*100 / self.takeoff_spacing - 1
+        self.takeoff_h = self.gy*100 / self.takeoff_spacing - 1
 
         params = [
             {
@@ -289,8 +295,11 @@ class Case(Command):
         Takes a start position in metres.
         """
         if start_pos is None:
-            x = 50 + 50*(self.drone_count%(2*self.gx - 1))
-            y = 50 + 50*(self.drone_count//(2*self.gx - 1))
+            x = 0.5*(100*self.gx - int(self.takeoff_w)*self.takeoff_spacing) + self.takeoff_spacing * (self.drone_count % int(self.takeoff_w + 1))
+            y = 0.5*(100*self.gy - int(self.takeoff_h)*self.takeoff_spacing) + self.takeoff_spacing * (self.drone_count // int(self.takeoff_w + 1))
+
+            x_ = self.takeoff_spacing//2 + self.takeoff_spacing*(self.drone_count%(2*self.gx - 1))
+            y_ = self.takeoff_spacing//2 + self.takeoff_spacing*(self.drone_count//(2*self.gx - 1))
 
         else:
             x, y = start_pos
