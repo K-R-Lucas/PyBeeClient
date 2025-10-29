@@ -62,7 +62,7 @@ class ImageScanner:
             return None
 
         colour = self.img.get_at((x, y))
-        if colour.a:
+        if colour.a > 10:
             results[pos] = (colour.r, colour.g, colour.b)
 
             for dy in [-1, 0, 1]:
