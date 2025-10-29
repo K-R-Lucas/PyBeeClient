@@ -1,5 +1,7 @@
-import pygame as pg
 from sys import setrecursionlimit
+import pygame as pg
+import pickle
+import os
 
 setrecursionlimit(1000)
 
@@ -44,37 +46,41 @@ class uleb128:
 class ImageScanner:
     def __init__(self, image_path: str):
         pg.display.set_mode((1, 1,), pg.HIDDEN)
-        self.img = pg.image.load(image_path).convert()
+        self.img = pg.image.load(image_path).convert_alpha()
         self.w, self.h = self.img.get_size()
+        self.points = None
 
-    def __scan_pixels(self, x: int, y: int, v_threshold: int = 30, master: bool = True, results: dict = None):
+    def __scan_pixels(self, x: int, y: int, master: bool = True, results: dict = None):
         if master:
             results = dict()
-
-        if (x < 0) or (x >= self.w) or (y < 0) or (y >= self.h):
-            return None
         
         pos = (x, y)
         if pos in results:
             return None
 
+        if (x < 0) or (x >= self.w) or (y < 0) or (y >= self.h):
+            return None
+
         colour = self.img.get_at((x, y))
-        if colour.hsva[2] > v_threshold:
+        if colour.a:
             results[pos] = (colour.r, colour.g, colour.b)
 
             for dy in [-1, 0, 1]:
                 for dx in [-1, 0, 1]:
-                    self.__scan_pixels(x+dx, y+dy, v_threshold, False, results)
+                    if (dx == 0) and (dy == 0):
+                        continue
+
+                    self.__scan_pixels(x+dx, y+dy, False, results)
         
         return results
     
 
-    def get_points(self, v_threshold: int = 30) -> dict[tuple, tuple]:
+    def get_points(self) -> dict[tuple, tuple]:
         averages = dict()
 
         for yi in range(self.h):
             for xi in range(self.w):
-                results = self.__scan_pixels(xi, yi, v_threshold)
+                results = self.__scan_pixels(xi, yi)
 
                 if not results:
                     continue
@@ -108,4 +114,19 @@ class ImageScanner:
 
                 averages[(X, Y)] = (R, G, B)
         
+        self.points = averages
         return averages
+    
+    def save_points(self, output_fp: str):
+        assert self.points is not None
+
+        with open(output_fp, "wb") as file:
+            pickle.dump(self.points, file)
+        
+    def load_points(self, input_fp: str):
+        assert os.path.exists(input_fp)
+
+        with open(input_fp, "rb") as file:
+            self.points = pickle.load(file)
+        
+        return self.points
