@@ -277,3 +277,62 @@ class Land(Command):
         ]
 
         super().__init__(params)
+
+class Curve3(Command):
+    """
+    Move the drone along a Bezier3 curve.
+    """
+
+    def __init__(self, target_pos: tuple[int, int, int], control_point_1: tuple[int, int, int], t: float = 10.0):
+        curve = Command([
+            {
+                "flag": 0x20,
+                "value": target_pos[0],
+                "type": "int"
+            },
+            {
+                "flag": 0x28,
+                "value": target_pos[1],
+                "type": "int"
+            },
+            {
+                "flag": 0x30,
+                "value": target_pos[2],
+                "type": "int"
+            },
+            {
+                "flag": 0x40,
+                "value": control_point_1[0],
+                "type": "int"
+            },
+            {
+                "flag": 0x48,
+                "value": control_point_1[1],
+                "type": "int"
+            },
+            {
+                "flag": 0x50,
+                "value": control_point_1[2],
+                "type": "int"
+            }
+        ])
+
+        params = [
+            {
+                "flag": 874,
+                "value": curve,
+                "type": "command"
+            },
+            {
+                "flag": 0x08,
+                "value": 10*t,
+                "type": "int"
+            },
+            {
+                "flag": 0x10,
+                "value": 0x0F,
+                "type": "int"
+            }
+        ]
+
+        super().__init__(params)
