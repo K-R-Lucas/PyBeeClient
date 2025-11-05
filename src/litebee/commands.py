@@ -1,11 +1,19 @@
 from litebee.utils import uleb128
 from litebee.core import Command
+from pygame.math import Vector3, Vector2
+from math import pi, radians
 
 class Calibrate(Command):
     """
     Calibrate the drone for <t> seconds. This must be the first command the drone receives.
     """
+    __slots__ = [
+        't'
+    ]
+
     def __init__(self, t: float = 5.0):
+        self.t = t
+
         params = [
             {
                 "flag": 810,
@@ -26,7 +34,15 @@ class Takeoff(Command):
     """
     Launch the drone to <height> cm over <t> secnods.
     """
+    __slots__ = [
+        't',
+        'h'
+    ]
+
     def __init__(self, height: int = 100, t: float = 5.0):
+        self.t = t
+        self.h = height
+
         params = [
             {
                 "flag": 818,
@@ -59,21 +75,30 @@ class Move3D(Command):
     """
     Move the drone to position <pos(x, y, z)> cm over <t> seconds.
     """
-    def __init__(self, pos: tuple[int, int, int], t: float = 10.0):
+    __slots__ = [
+        'target'
+    ]
+
+    def __init__(self, pos: Vector3, t: float = 10.0):
+        if not isinstance(pos, Vector3):
+            pos = Vector3(pos)
+        
+        self.target = pos
+
         p = Command([
             {
                 "flag": 0x20,
-                "value": pos[0],
+                "value": pos.x,
                 "type": "int"
             },
             {
                 "flag": 0x28,
-                "value": pos[1],
+                "value": pos.y,
                 "type": "int"
             },
             {
                 "flag": 0x30,
-                "value": pos[2],
+                "value": pos.z,
                 "type": "int"
             }
         ])
@@ -100,21 +125,38 @@ class Move3D(Command):
 
 
 class Around(Command):
-    def __init__(self, pos: tuple[int, int, int], t: float = 10.0, half_num: int = 1, is_clockwise: bool = True):
+    """
+    Move the drone around the specified <pos> by 180 degrees <half_num> times.
+    """
+    __slots__ = [
+        't',
+        "origin",
+        "radians",
+        "direction"
+    ]
+
+    def __init__(self, pos: Vector2, t: float = 10.0, half_num: int = 1, is_clockwise: bool = True):
+        if not isinstance(pos, Vector3):
+            pos = Vector3(pos)
+        
+        self.origin = pos
+        self.radians = pi * half_num
+        self.direction = -1 if is_clockwise else 1
+
         p = Command([
             {
                 "flag": 0x20,
-                "value": pos[0],
+                "value": pos.x,
                 "type": "int"
             },
             {
                 "flag": 0x28,
-                "value": pos[1],
+                "value": pos.y,
                 "type": "int"
             },
             {
                 "flag": 0x30,
-                "value": pos[2],
+                "value": pos.z,
                 "type": "int"
             },
             {
@@ -152,23 +194,34 @@ class Around(Command):
 
 class AroundH(Command):
     """
-    Note that instead of a <height> parameter, the <pos> has an x, y, z (height)
+    Move the drone around the specified <pos> in a spiral.
     """
-    def __init__(self, pos: tuple[int, int, int], t: float = 10.0, is_clockwise: bool = True):
+    __slots__ = [
+        't', 'h',
+        "origin",
+        "direction"
+    ]
+
+    def __init__(self, pos: Vector2, height: int = 100, t: float = 10.0, is_clockwise: bool = True):
+        self.t = t
+        self.h = height
+        self.origin = Vector2(pos)
+        self.direction = -1 if is_clockwise else 1
+
         p = Command([
             {
                 "flag": 0x20,
-                "value": pos[0],
+                "value": self.origin.x,
                 "type": "int"
             },
             {
                 "flag": 0x28,
-                "value": pos[1],
+                "value": self.origin.y,
                 "type": "int"
             },
             {
                 "flag": 0x30,
-                "value": pos[2],
+                "value": height,
                 "type": "int"
             },
             {
@@ -203,21 +256,33 @@ class AroundD(Command):
     """
     Note that instead of a <height> parameter, the <pos> has an x, y, z (height)
     """
-    def __init__(self, pos: tuple[int, int, int], t: float = 10.0, degree: int = 0, is_clockwise: bool = True):
+    __slots__ = [
+        't', 'h', 'a',
+        "origin",
+        "direction"
+    ]
+
+    def __init__(self, pos: Vector2, height: int = 100, angle: int = 100, t: float = 10.0, is_clockwise: bool = True):
+        self.t = t
+        self.h = height
+        self.a = radians(angle)
+        self.origin = Vector2(pos)
+        self.direction = -1 if is_clockwise else 1
+
         p = Command([
             {
                 "flag": 0x20,
-                "value": pos[0],
+                "value": self.origin.x,
                 "type": "int"
             },
             {
                 "flag": 0x28,
-                "value": pos[1],
+                "value": self.origin.y,
                 "type": "int"
             },
             {
                 "flag": 0x30,
-                "value": pos[2],
+                "value": height,
                 "type": "int"
             },
             {
@@ -227,7 +292,7 @@ class AroundD(Command):
             },
             {
                 "flag": 0x40,
-                "value": degree,
+                "value": angle,
                 "type": "int"
             }
         ])
@@ -257,7 +322,13 @@ class Land(Command):
     """
     Land the drone. <t> should not be changed from 3 seconds, though it seems to still work.
     """
+    __slots__ = [
+        't'
+    ]
+
     def __init__(self, t: float = 3.0):
+        self.t = t
+
         params = [
             {
                 "flag": 826,
@@ -282,37 +353,46 @@ class Curve3(Command):
     """
     Move the drone along a Bezier3 curve.
     """
+    __slots__ = [
+        't'
+        "control",
+        "target"
+    ]
 
-    def __init__(self, target_pos: tuple[int, int, int], control_point_1: tuple[int, int, int], t: float = 10.0):
+    def __init__(self, target_pos: Vector3, control_point_1: Vector3, t: float = 10.0):
+        self.t = t
+        self.control = Vector3(control_point_1)
+        self.target = Vector3(target_pos)
+
         curve = Command([
             {
                 "flag": 0x20,
-                "value": target_pos[0],
+                "value": self.target.x,
                 "type": "int"
             },
             {
                 "flag": 0x28,
-                "value": target_pos[1],
+                "value": self.target.y,
                 "type": "int"
             },
             {
                 "flag": 0x30,
-                "value": target_pos[2],
+                "value": self.target.z,
                 "type": "int"
             },
             {
                 "flag": 0x40,
-                "value": control_point_1[0],
+                "value": self.control.x,
                 "type": "int"
             },
             {
                 "flag": 0x48,
-                "value": control_point_1[1],
+                "value": self.control.y,
                 "type": "int"
             },
             {
                 "flag": 0x50,
-                "value": control_point_1[2],
+                "value": self.control.z,
                 "type": "int"
             }
         ])
