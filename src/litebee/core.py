@@ -1,3 +1,4 @@
+from pygame.math import Vector3
 from struct import pack
 from uuid import uuid4
 from os import path
@@ -11,7 +12,11 @@ class Command:
     """
     __slots__ = [
         "params",
-        "bytes_"
+        "bytes_",
+        't',
+        "start_pos",
+        "end_pos",
+        "ref_pos"
     ]
 
     def __init__(self, params: list[dict]):
@@ -180,11 +185,15 @@ class  Drone(Command):
     Initialise drone <number> at position <pos>
     """
     __slots__ = [
+        "commands",
+        "flight_duration",
         "start_pos"
     ]
 
-    def __init__(self, number: int, pos: tuple[float, float]):
-        self.start_pos = pos
+    def __init__(self, number: int, pos: Vector3):
+        self.commands: list[Command] = list()
+        self.start_pos = Vector3(pos)
+
         params = [
             {
                 "flag": 0x10,
@@ -193,12 +202,12 @@ class  Drone(Command):
             },
             {
                 "flag": 0x1D,
-                "value": 0.01*pos[0],
+                "value": 0.01*self.start_pos.x,
                 "type": "float"
             },
             {
                 "flag": 0x2D,
-                "value": 0.01*pos[1],
+                "value": 0.01*self.start_pos.y,
                 "type": "float"
             },
             
@@ -211,6 +220,8 @@ class  Drone(Command):
         Add a single command to the drone. All drones should have at least 
         the Calibrate, Takeoff and Land commands before being used in a show.
         """
+        self.commands.append(command)
+
         self.params.append({
             "flag": 0x32,
             "value": command,
@@ -244,7 +255,8 @@ class Case(Command):
         "start_pos",
         "takeoff_spacing",
         "takeoff_w",
-        "takeoff_h"
+        "takeoff_h",
+        "drones"
     ]
 
     def __init__(self, name: str,\
@@ -257,6 +269,7 @@ class Case(Command):
         self.takeoff_spacing = takeoff_spacing
         self.takeoff_w = self.gx*100 / self.takeoff_spacing - 1
         self.takeoff_h = self.gy*100 / self.takeoff_spacing - 1
+        self.drones: list[Drone] = list()
 
         params = [
             {
@@ -295,17 +308,14 @@ class Case(Command):
         Takes a start position in metres.
         """
         if start_pos is None:
-            x = 0.5*(100*self.gx - int(self.takeoff_w)*self.takeoff_spacing) + self.takeoff_spacing * (self.drone_count % int(self.takeoff_w + 1))
+            x = 0.5*(100*self.gx - int(self.takeoff_w)*self.takeoff_spacing) + self.takeoff_spacing * (self.drone_count %  int(self.takeoff_w + 1))
             y = 0.5*(100*self.gy - int(self.takeoff_h)*self.takeoff_spacing) + self.takeoff_spacing * (self.drone_count // int(self.takeoff_w + 1))
-
-            x_ = self.takeoff_spacing//2 + self.takeoff_spacing*(self.drone_count%(2*self.gx - 1))
-            y_ = self.takeoff_spacing//2 + self.takeoff_spacing*(self.drone_count//(2*self.gx - 1))
-
         else:
             x, y = start_pos
 
         self.drone_count += 1
-        drone = Drone(self.drone_count, (x, y))
+        drone = Drone(self.drone_count, Vector3(x, y, 0))
+        self.drones.append(drone)
 
         self.params.append(
             {
@@ -326,3 +336,7 @@ class Case(Command):
 
         with open(file_path, "wb") as file:
             file.write(self.get_bytes())
+    
+    # def simulate(self, fix_collisions: bool = False):
+    #     for drone in self.drones:
+    #         pass
