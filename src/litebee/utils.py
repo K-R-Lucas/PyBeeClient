@@ -50,7 +50,7 @@ class ImageScanner:
         self.w, self.h = self.img.get_size()
         self.points = None
 
-    def __scan_pixels(self, x: int, y: int, master: bool = True, results: dict = None):
+    def __scan_pixels(self, x: int, y: int, master: bool = True, results: dict = None, alpha_threshold: int = 10):
         if master:
             results = dict()
         
@@ -62,7 +62,7 @@ class ImageScanner:
             return None
 
         colour = self.img.get_at((x, y))
-        if colour.a > 10:
+        if colour.a > alpha_threshold:
             results[pos] = (colour.r, colour.g, colour.b)
 
             for dy in [-1, 0, 1]:
@@ -70,17 +70,25 @@ class ImageScanner:
                     if (dx == 0) and (dy == 0):
                         continue
 
-                    self.__scan_pixels(x+dx, y+dy, False, results)
+                    self.__scan_pixels(x+dx, y+dy, False, results, alpha_threshold)
         
         return results
     
+    def mul_colour(self, colour: tuple[int, int, int], factor: float):
+        return tuple(int(i*factor) for i in colour)
 
-    def get_points(self) -> dict[tuple, tuple]:
+    def get_points(self, alpha_threshold: int = 10, auto_brightness: bool = True, auto_brightness_exp: float = 1) -> dict[tuple, tuple]:
+        """
+        Generate a dictionary of points from the provided image. If <auto_brightness> is True,
+        the brightness of drones will be proportional to the number of pixels in a dot.
+        <auto_brightness_exp> is the exponent of the proportionality. Lower values will result in smaller differences in brightness.
+        """
         averages = dict()
+        counts = dict()
 
         for yi in range(self.h):
             for xi in range(self.w):
-                results = self.__scan_pixels(xi, yi)
+                results = self.__scan_pixels(xi, yi, alpha_threshold=alpha_threshold)
 
                 if not results:
                     continue
@@ -113,6 +121,16 @@ class ImageScanner:
                 B /= n
 
                 averages[(X, Y)] = (R, G, B)
+
+                if auto_brightness:
+                    counts[(X, Y)] = n
+        
+        if auto_brightness:
+            max_count = max(counts.values())
+            
+            for key in counts.keys():
+                scaling_factor = (counts[key]/max_count)**auto_brightness_exp
+                averages[key] = self.mul_colour(averages[key], scaling_factor)
         
         self.points = averages
         return averages
