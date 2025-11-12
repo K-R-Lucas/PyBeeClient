@@ -1,4 +1,5 @@
 from sys import setrecursionlimit
+from datetime import datetime
 import pygame as pg
 import pickle
 import os
@@ -148,3 +149,8 @@ class ImageScanner:
             self.points = pickle.load(file)
         
         return self.points
+    
+def convert_time(stamp: datetime) -> int:
+    t = stamp.timestamp()
+
+    return int((t + 62135636400)*1e7)
