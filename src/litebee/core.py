@@ -1,10 +1,12 @@
 from pygame.math import Vector3
+from datetime import datetime
 from struct import pack
 from uuid import uuid4
 from os import path
 
-from litebee.utils import uleb128
+import json
 
+from litebee.utils import uleb128, convert_time
 
 class Command:
     """
@@ -337,6 +339,39 @@ class Case(Command):
         with open(file_path, "wb") as file:
             file.write(self.get_bytes())
     
-    # def simulate(self, fix_collisions: bool = False):
-    #     for drone in self.drones:
-    #         pass
+    def save_and_import(self, litebee_save_dir: str = None):
+        if litebee_save_dir is None:
+            litebee_save_dir = path.expanduser("~/AppData/LocalLow/创客火/LiteBeeClient/DesignCase/")
+        
+        config_dir = path.join(litebee_save_dir, "Config.txt")
+
+        with open(config_dir, 'r') as file:
+            config_data = json.load(file)
+        
+        if isinstance(config_data, list):
+            for packet in config_data:
+                packet.update({
+                    "$type": "LittleBee.DesignCaseInfo, Assembly-CSharp"
+                })
+
+            config_data = {
+                "$type": "System.Collections.Generic.List`1[[LittleBee.DesignCaseInfo, Assembly-CSharp]], mscorlib",
+                "$values": config_data
+            }
+
+        t = convert_time(datetime.now())
+        config_data["$values"].append({
+            "$type": "LittleBee.DesignCaseInfo, Assembly-CSharp",
+            "caseName": self.name,
+            "caseID": self.uuid,
+            "createTimeTicks": t,
+            "lastTimeTicks": t,
+            "curAudioID": None
+        })
+
+        with open(config_dir, 'w') as file:
+            json.dump(config_data, file)
+
+        self.save(
+            path.join(litebee_save_dir, f"{self.uuid}.bin")
+        )
