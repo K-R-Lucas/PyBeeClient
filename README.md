@@ -4,7 +4,7 @@
 
 This project is not designed to be a full replacement to LiteBeeClient, nor is it intended to have implementations for every single feature of LiteBeeClient. The following components are currently working for LBC v1.3.9 - v1.3.11:
 
-All commands (except for Curve) and basic usage have been implemented, this includes:
+All commands (except for Curve4) and basic usage have been implemented, this includes:
 
 - Calibrate
 - Takeoff
@@ -15,6 +15,7 @@ All commands (except for Curve) and basic usage have been implemented, this incl
   - Around(D)
 - RGB
 - RGBGradient
+- Curve3
 
 Basic usage:
 
