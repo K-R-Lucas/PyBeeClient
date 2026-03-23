@@ -84,8 +84,14 @@ class ImageScanner:
         the brightness of drones will be proportional to the number of pixels in a dot.
         <auto_brightness_exp> is the exponent of the proportionality. Lower values will result in smaller differences in brightness.
         """
-        averages = dict()
-        counts = dict()
+        averages = list()
+        counts = list()
+        self.points = dict()
+
+        min_x = float("inf")
+        max_x = -float("inf")
+        min_y = float("inf")
+        max_y = -float("inf")
 
         for yi in range(self.h):
             for xi in range(self.w):
@@ -121,20 +127,30 @@ class ImageScanner:
                 G /= n
                 B /= n
 
-                averages[(X, Y)] = (R, G, B)
-
-                if auto_brightness:
-                    counts[(X, Y)] = n
-        
-        if auto_brightness:
-            max_count = max(counts.values())
+                averages.append((
+                    (X, Y), (R, G, B), n
+                ))
+                
+                if X < min_x:
+                    min_x = X
             
-            for key in counts.keys():
-                scaling_factor = (counts[key]/max_count)**auto_brightness_exp
-                averages[key] = self.mul_colour(averages[key], scaling_factor)
+                elif X > max_x:
+                    max_x = X
+                
+                if Y < min_y:
+                    min_y = Y
+                
+                elif Y > max_y:
+                    max_y = Y
         
-        self.points = averages
-        return averages
+        max_n = max(v[2] for v in averages)
+
+        for pos, colour, n in averages:
+            self.points[
+                (pos[0] - min_x)/(max_x - min_x), (pos[1] - min_y)/(max_y - min_y)
+            ] = self.mul_colour(colour, (n/max_n)**auto_brightness_exp) if auto_brightness else colour
+
+        return self.points
     
     def save_points(self, output_fp: str):
         assert self.points is not None

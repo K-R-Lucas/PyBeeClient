@@ -1,7 +1,7 @@
 from litebee.utils import uleb128
 from litebee.core import Command
 from pygame.math import Vector3, Vector2
-from math import pi, radians
+from math import pi, radians, cos, sin, atan2
 
 class Calibrate(Command):
     """
@@ -28,6 +28,9 @@ class Calibrate(Command):
         ]
 
         super().__init__(params)
+    
+    def calculate_delta(self, t):
+        return Vector3(0, 0, 0)
 
 
 class Takeoff(Command):
@@ -70,13 +73,16 @@ class Takeoff(Command):
 
         super().__init__(params)
 
+    def calculate_delta(self, t):
+        return Vector3(0, 0, t * self.h)
 
 class Move3D(Command):
     """
     Move the drone to position <pos(x, y, z)> cm over <t> seconds.
     """
     __slots__ = [
-        'target'
+        "target",
+        't'
     ]
 
     def __init__(self, pos: Vector3, t: float = 10.0):
@@ -84,6 +90,7 @@ class Move3D(Command):
             pos = Vector3(pos)
         
         self.target = pos
+        self.t = t
 
         p = Command([
             {
@@ -122,6 +129,9 @@ class Move3D(Command):
         ]
 
         super().__init__(params)
+    
+    def calculate_delta(self, t):
+        return t * (self.target - self.start_pos)
 
 
 class Around(Command):
@@ -142,6 +152,7 @@ class Around(Command):
         self.origin = pos
         self.radians = pi * half_num
         self.direction = -1 if is_clockwise else 1
+        self.t = t
 
         p = Command([
             {
@@ -190,6 +201,17 @@ class Around(Command):
         ]
 
         super().__init__(params)
+    
+    def calculate_delta(self, t):
+        delta = self.origin - self.start_pos
+        r = delta.magnitude()
+        ra = atan2(delta.y, delta.x)
+
+        a = ra + self.direction*self.radians*t
+        x = r*cos(a)
+        y = r*sin(a)
+
+        return Vector3(x, y, 0)
 
 
 class AroundH(Command):
@@ -250,6 +272,18 @@ class AroundH(Command):
         ]
 
         super().__init__(params)
+    
+    def calculate_delta(self, t):
+        delta = self.origin - self.start_pos
+        r = delta.magnitude()
+        ra = atan2(delta.y, delta.x)
+
+        a = ra + self.direction*pi*t
+        x = r*cos(a)
+        y = r*sin(a)
+        z = t*self.h
+
+        return Vector3(x, y, z)
 
 
 class AroundD(Command):
@@ -316,6 +350,18 @@ class AroundD(Command):
         ]
 
         super().__init__(params)
+    
+    def calculate_delta(self, t):
+        delta = self.origin - self.start_pos
+        r = delta.magnitude()
+        ra = atan2(delta.y, delta.x)
+
+        a = ra + self.direction*self.a*t
+        x = r*cos(a)
+        y = r*sin(a)
+        z = t*self.h
+
+        return Vector3(x, y, z)
 
 
 class Land(Command):
@@ -349,14 +395,20 @@ class Land(Command):
 
         super().__init__(params)
 
+    def calculate_delta(self, t):
+        z = -t*self.start_pos.z
+        return Vector3(0, 0, z)
+
+
 class Curve3(Command):
     """
     Move the drone along a Bezier3 curve.
     """
     __slots__ = [
-        't'
+        't',
         "control",
-        "target"
+        "target",
+        "curve"
     ]
 
     def __init__(self, target_pos: Vector3, control_point_1: Vector3, t: float = 10.0):
@@ -364,7 +416,7 @@ class Curve3(Command):
         self.control = Vector3(control_point_1)
         self.target = Vector3(target_pos)
 
-        curve = Command([
+        self.curve = Command([
             {
                 "flag": 0x20,
                 "value": self.target.x,
@@ -400,7 +452,7 @@ class Curve3(Command):
         params = [
             {
                 "flag": 874,
-                "value": curve,
+                "value": self.curve,
                 "type": "command"
             },
             {
@@ -416,3 +468,29 @@ class Curve3(Command):
         ]
 
         super().__init__(params)
+    
+    def calculate_delta(self, t):
+        p0 = Vector3(0, 0, 0)
+        p1 = self.control - self.start_pos
+        p2 = self.target - self.start_pos
+        return (1 - t)**2 * p0 + 2*t*(1 - t) * p1 + t**2 * p2
+
+    def update(self):
+        calculated_positions = [
+            *(self.start_pos + self.calculate_delta(1/3)),
+            *(self.start_pos + self.calculate_delta(2/3))
+        ]
+
+        flags = [
+            0x58, 0x60, 0x68, 0x70, 0x78, 0x80
+        ]
+
+        if any(i < 0 for i in calculated_positions):
+            raise ValueError("Curved path cannot pass through negative space.")
+
+        for flag, value in zip(flags, calculated_positions):
+            self.curve.add_parameter(
+                flag,
+                max(0, int(round(value))),
+                "int"
+            )

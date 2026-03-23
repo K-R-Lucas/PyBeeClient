@@ -21,14 +21,40 @@ class Command:
         "ref_pos"
     ]
 
-    def __init__(self, params: list[dict]):
+    def __init__(self, params: list[dict], start_pos: Vector3 = None):
         self.params = params
         self.bytes_ = None
+        self.start_pos = start_pos
+        self.end_pos = None
 
-    def add_parameter(self, flag: int | None, value: int | bytes):
+        if not hasattr(self, 't'):
+            self.t = 0
+    
+    def set_time(self, t: float):
+        self.t = t
+
+        for param in self.params:
+            if param["flag"] == 0x08:
+                param["value"] = 10*t
+            
+            elif param["type"] == "command":
+                param["value"].set_time(t)
+    
+    def change_time(self, t: float):
+        self.t += t
+
+        for param in self.params:
+            if param["flag"] == 0x08:
+                param["value"] = 10*self.t
+            
+            elif param["type"] == "command":
+                param["value"].change_time(t)
+
+    def add_parameter(self, flag: int | None, value: int | bytes, type: str):
         self.params.append({
             "flag": flag,
-            "value": value
+            "value": value,
+            "type": type
         })
     
     def add_rgb(self, colour: tuple[int, int, int], t: float = 0.0):
@@ -73,6 +99,9 @@ class Command:
                                   + bytes(value, encoding="utf-8")
                 
                 case "command":
+                    if hasattr(value, "update"):
+                        value.update()
+                    
                     value = value.get_bytes()
                     value_bytes = uleb128.from_int(len(value)) + value
                 
@@ -90,6 +119,29 @@ class Command:
         self.bytes_ = params
         return params
     
+    def calculate_delta(self, t: float) -> Vector3: ...
+    def update(self) -> None: ...
+
+    def __repr__(self):
+        return str(
+            {slot: getattr(self, slot) for slot in self.__slots__ if hasattr(self, slot)}
+        )
+    
+    def __getitem__(self, flag: int) -> dict:
+        for param in self.params:
+            if param["flag"] == flag:
+                return param
+        
+
+        raise KeyError(f"Flag 0x{hex(flag)[2:].upper()} not found")
+
+    def __setitem__(self, flag: int, new_param: dict):
+        for param in self.params:
+            if param["flag"] == flag:
+                param.update(new_param)
+                return
+
+        raise KeyError(f"Flag 0x{hex(flag)[2:].upper()} not found")
 
 class RGB(Command):
     """
@@ -182,19 +234,26 @@ class RGBGradient(Command):
         super().__init__(params)
 
 
-class  Drone(Command):
+class Drone(Command):
     """
     Initialise drone <number> at position <pos>
     """
     __slots__ = [
         "commands",
-        "flight_duration",
-        "start_pos"
+        "start_pos",
+        "simulated_time",
+        "simulated_pos",
+        "simulated_ref_pos",
+        "simulated_command",
+        "simulated_command_start_time",
+        "id"
     ]
 
     def __init__(self, number: int, pos: Vector3):
         self.commands: list[Command] = list()
         self.start_pos = Vector3(pos)
+        self.reset_simulation()
+        self.id = number
 
         params = [
             {
@@ -215,14 +274,30 @@ class  Drone(Command):
             
         ]
 
-        super().__init__(params)
+        super().__init__(params, start_pos=self.start_pos)
+
+    def calculate_key_points(self):
+        if len(self.commands) == 0:
+            return
+
+        self.reset_simulation()
+
+        for command in self.commands:
+            command.start_pos = self.simulated_ref_pos
+            command.end_pos = command.start_pos + command.calculate_delta(1)
+            self.simulated_ref_pos = command.end_pos
     
     def add_command(self, command: Command):
         """
         Add a single command to the drone. All drones should have at least 
         the Calibrate, Takeoff and Land commands before being used in a show.
         """
+        
         self.commands.append(command)
+        self.calculate_key_points()
+
+        if hasattr(command, "update"):
+            command.update()
 
         self.params.append({
             "flag": 0x32,
@@ -241,6 +316,54 @@ class  Drone(Command):
             self.add_command(command)
         
         return self
+
+    def calculate_duration(self):
+        return sum(
+            c.t for c in self.commands
+        )
+    
+    def reset_simulation(self):
+        self.simulated_time = 0
+        self.simulated_pos = self.start_pos.copy()
+        self.simulated_ref_pos = self.start_pos.copy()
+        self.simulated_command = 0
+        self.simulated_command_start_time = 0
+
+        for command in self.commands:
+            command.start_pos = None
+            command.end_pos = None
+
+    def simulate_step(self, dt: float):
+        n = len(self.commands)
+
+        if n == 0:
+            return False
+    
+        if (self.commands[-1].end_pos is not None) and (self.simulated_command == n-1):
+            return False
+        
+        cmd = self.commands[self.simulated_command]
+        
+        if cmd.start_pos is None:
+            cmd.start_pos = self.simulated_ref_pos
+
+        if self.simulated_time >= self.simulated_command_start_time + cmd.t:
+            self.simulated_ref_pos += cmd.calculate_delta(1)
+            cmd.end_pos = self.simulated_ref_pos
+
+            if self.simulated_command + 1 < n:
+                self.simulated_command += 1
+                self.simulated_command_start_time += cmd.t
+                return True
+            else:
+                return False
+        
+        cmd_time = self.simulated_time - self.simulated_command_start_time
+        cmd_progress = cmd_time/cmd.t
+
+        self.simulated_pos = self.simulated_ref_pos + cmd.calculate_delta(cmd_progress)
+        self.simulated_time += dt
+        return True
 
 
 class Case(Command):
@@ -375,3 +498,66 @@ class Case(Command):
         self.save(
             path.join(litebee_save_dir, f"{self.uuid}.bin")
         )
+    
+    def reset_simulation_state(self):
+        for drone in self.drones:
+            drone.reset_simulation()
+    
+    def fix_collisions(self, resolution: float, correction_scale: float = 1.0, collision_radius: float = 60.0):
+        from litebee.commands import Curve3, Move3D
+
+        self.reset_simulation_state()
+        drones = self.drones
+        t = 0
+
+        while drones:=[drone for drone in drones if drone.simulate_step(resolution)]:
+            t += resolution
+            n = len(drones)
+
+            for i in range(n):
+                d1 = drones[i]
+
+                for j in range(i+1, n):
+                    d2 = drones[j]
+
+                    while d1.simulated_pos.distance_squared_to(d2.simulated_pos) < collision_radius**2:
+                        if d1.simulated_ref_pos.distance_squared_to(d2.simulated_ref_pos) < (0.5*collision_radius)**2:
+                            break
+
+                        command = d1.commands[d1.simulated_command]
+
+                        if isinstance(command, Curve3):
+                            p1: Vector3 = command.control
+                            p2: Vector3 = command.target
+
+                            delta = p2 - p1.project(p2)
+                            adj = correction_scale*resolution*delta
+
+                            command[874]["value"][0x40] = {
+                                "value": p1.x - adj.x,
+                            }
+
+                            command[874]["value"][0x48] = {
+                                "value": p1.y - adj.y,
+                            }
+
+                            command[874]["value"][0x50] = {
+                                "value": p1.z - adj.z,
+                            }
+
+                            command.control -= adj
+
+                            t1 = 0
+                            d1.reset_simulation()
+                            while t1 < t:
+                                d1.simulate_step(resolution)
+                                t1 += resolution
+
+                        elif isinstance(command, Move3D):
+                            command.change_time(resolution)
+                            d1.reset_simulation()
+
+                            t1 = 0
+                            while t1 < t:
+                                d1.simulate_step(resolution)
+                                t1 += resolution

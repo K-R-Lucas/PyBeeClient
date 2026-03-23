@@ -1,1 +1,1 @@
-from litebee import utils, core, commands
+from litebee import utils, core, commands, config
