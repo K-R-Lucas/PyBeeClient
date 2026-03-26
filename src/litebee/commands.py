@@ -219,15 +219,14 @@ class AroundH(Command):
     Move the drone around the specified <pos> in a spiral.
     """
     __slots__ = [
-        't', 'h',
+        't',
         "origin",
         "direction"
     ]
 
-    def __init__(self, pos: Vector2, height: int = 100, t: float = 10.0, is_clockwise: bool = True):
+    def __init__(self, pos: Vector3, t: float = 10.0, is_clockwise: bool = True):
         self.t = t
-        self.h = height
-        self.origin = Vector2(pos)
+        self.origin = Vector3(pos)
         self.direction = -1 if is_clockwise else 1
 
         p = Command([
@@ -243,7 +242,7 @@ class AroundH(Command):
             },
             {
                 "flag": 0x30,
-                "value": height,
+                "value": self.origin.z,
                 "type": "int"
             },
             {
@@ -274,14 +273,14 @@ class AroundH(Command):
         super().__init__(params)
     
     def calculate_delta(self, t):
-        delta = self.origin - self.start_pos
+        delta = self.origin.xy - self.start_pos.xy
         r = delta.magnitude()
         ra = atan2(delta.y, delta.x)
 
         a = ra + self.direction*pi*t
         x = r*cos(a)
         y = r*sin(a)
-        z = t*self.h
+        z = t*self.origin.z
 
         return Vector3(x, y, z)
 
@@ -291,16 +290,15 @@ class AroundD(Command):
     Note that instead of a <height> parameter, the <pos> has an x, y, z (height)
     """
     __slots__ = [
-        't', 'h', 'a',
+        't', 'a',
         "origin",
         "direction"
     ]
 
-    def __init__(self, pos: Vector2, height: int = 100, angle: int = 100, t: float = 10.0, is_clockwise: bool = True):
+    def __init__(self, pos: Vector3, angle: int = 100, t: float = 10.0, is_clockwise: bool = True):
         self.t = t
-        self.h = height
         self.a = radians(angle)
-        self.origin = Vector2(pos)
+        self.origin = Vector3(pos)
         self.direction = -1 if is_clockwise else 1
 
         p = Command([
@@ -316,7 +314,7 @@ class AroundD(Command):
             },
             {
                 "flag": 0x30,
-                "value": height,
+                "value": self.origin.z,
                 "type": "int"
             },
             {
@@ -359,7 +357,7 @@ class AroundD(Command):
         a = ra + self.direction*self.a*t
         x = r*cos(a)
         y = r*sin(a)
-        z = t*self.h
+        z = t*self.origin.z
 
         return Vector3(x, y, z)
 
