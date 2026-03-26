@@ -81,12 +81,15 @@ class Command:
 
         return self
 
-    def get_bytes(self, force_recompile: bool = False):
+    def get_bytes(self, extra_params: list[dict] = None, force_recompile: bool = False):
         if (not force_recompile) and (self.bytes_ is not None):
             return self.bytes_
         
+        if extra_params is None:
+            extra_params = list()
+
         params = b''
-        for param in self.params:
+        for param in self.params + extra_params:
             flag = param["flag"]
             value = param["value"]
             data_type = param["type"]
@@ -149,36 +152,60 @@ class RGB(Command):
     Use Command.add_rgb() to contorl lighting.
     """
     def __init__(self, colour: tuple[int, int, int], t: float = 0.0):
-        c = Command([
-            {
-                "flag": 0x20,
-                "value": colour[0],
-                "type": "int"
-            },
-            {
-                "flag": 0x28,
-                "value": colour[1],
-                "type": "int"
-            },
-            {
-                "flag": 0x30,
-                "value": colour[2],
-                "type": "int"
-            }
-        ])
+        params = []
 
-        params = [
+        if colour == (0, 0, 0):
+            params.append(
+                {
+                    "flag": 858,
+                    "value": 0,
+                    "type": "int"
+                }
+            )
+
+        else:
+            c = Command([
+                {
+                    "flag": 0x20,
+                    "value": colour[0],
+                    "type": "int"
+                },
+                {
+                    "flag": 0x28,
+                    "value": colour[1],
+                    "type": "int"
+                },
+                {
+                    "flag": 0x30,
+                    "value": colour[2],
+                    "type": "int"
+                }
+            ])
+
+            params.append(
+                {
+                    "flag": 858,
+                    "value": c,
+                    "type": "command"
+                }
+            )
+        
+        if t > 0:
+            params.append(
+                {
+                    "flag": 0x08,
+                    "value": 10*t,
+                    "type": "int"
+                }
+            )
+        
+        params.append(
             {
-                "flag": 858,
-                "value": c,
-                "type": "command"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
+                "flag": 0x10,
+                "value": 0x33,
                 "type": "int"
             }
-        ]
+        )
 
         super().__init__(params)
 
@@ -430,7 +457,7 @@ class Case(Command):
     def add_drone(self, start_pos: tuple[float, float] = None):
         """
         Add a drone to the light show.
-        Takes a start position in metres.
+        Takes a start position in centimetres.
         """
         if start_pos is None:
             x = 0.5*(100*self.gx - int(self.takeoff_w)*self.takeoff_spacing) + self.takeoff_spacing * (self.drone_count %  int(self.takeoff_w + 1))
@@ -459,8 +486,39 @@ class Case(Command):
         if not file_path.endswith(".bin"):
             file_path += ".bin"
 
+        c = Command([
+            {
+                "flag": 0x10,
+                "value": self.gx * 100,
+                "type": "int"
+            },
+            {
+                "flag": 0x20,
+                "value": self.gy * 100,
+                "type": "int"
+            }
+        ])
+        
+        extra_params = [
+            {
+                "flag": 0x3A,
+                "value": 0x02,
+                "type": "int"
+            },
+            {
+                "flag": 0x08,
+                "value": 0x01,
+                "type": "int"
+            },
+            {
+                "flag": 0x52,
+                "value": c,
+                "type": "command"
+            }
+        ]
+
         with open(file_path, "wb") as file:
-            file.write(self.get_bytes())
+            file.write(self.get_bytes(extra_params=extra_params))
     
     def save_and_import(self, litebee_save_dir: str = None):
         if litebee_save_dir is None:
