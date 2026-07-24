@@ -120,6 +120,7 @@ class ImageScanner:
         max_x = -float("inf")
         min_y = float("inf")
         max_y = -float("inf")
+        max_n = -float("inf")
 
         for yi in range(self.h):
             for xi in range(self.w):
@@ -157,6 +158,9 @@ class ImageScanner:
 
                 averages.append(((X, Y), (R, G, B), n))
 
+                if n > max_n:
+                    max_n = n
+
                 if X < min_x:
                     min_x = X
 
@@ -169,16 +173,12 @@ class ImageScanner:
                 elif Y > max_y:
                     max_y = Y
 
-        max_n = max(v[2] for v in averages)
-
         for pos, colour, n in averages:
             self.points[
-                (pos[0] - min_x) / (max_x - min_x), (pos[1] - min_y) / (max_y - min_y)
-            ] = (
-                self.mul_colour(colour, (n / max_n) * max_depth)
-                if auto_brightness
-                else colour
-            )
+                (pos[0] - min_x) / (max_x - min_x),
+                (pos[1] - min_y) / (max_y - min_y),
+                (1 - (n / max_n)),
+            ] = colour
 
         return self.points
 
@@ -198,6 +198,4 @@ class ImageScanner:
 
 
 def convert_time(stamp: datetime) -> int:
-    t = stamp.timestamp()
-
-    return int((t + 62135636400) * 1e7)
+    return int((stamp.timestamp() + 62135636400) * 1e7)
