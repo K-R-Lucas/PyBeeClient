@@ -1,16 +1,18 @@
-from sys import setrecursionlimit
-from datetime import datetime
-import pygame as pg
-import pickle
 import os
+import pickle
+from datetime import datetime
+from sys import setrecursionlimit
+
+from PIL import Image
 
 setrecursionlimit(1000)
+
 
 class uleb128:
     @staticmethod
     def from_int(input_int: float):
         assert input_int >= 0
-        
+
         byte_list = []
         value = int(input_int)
 
@@ -20,12 +22,12 @@ class uleb128:
 
             if value != 0:
                 byte |= 0b10000000
-            
+
             byte_list.append(byte)
 
             if value == 0:
                 break
-        
+
         return bytes(byte_list)
 
     @staticmethod
@@ -46,15 +48,31 @@ class uleb128:
 
 class ImageScanner:
     def __init__(self, image_path: str):
-        pg.display.set_mode((1, 1,), pg.HIDDEN)
-        self.img = pg.image.load(image_path).convert_alpha()
-        self.w, self.h = self.img.get_size()
+        if not image_path.lower().endswith(".png"):
+            raise ValueError("Only PNG files can be scanned.")
+
+        try:
+            self.img = Image.open(image_path, formats=["image/png"])
+        except Exception:
+            raise ValueError("Only PNG files can be scanned.")
+
+        self.w, self.h = self.img.size
         self.points = None
 
-    def __scan_pixels(self, x: int, y: int, master: bool = True, results: dict = None, alpha_threshold: int = 10):
+    def __scan_pixels(
+        self,
+        x: int,
+        y: int,
+        master: bool = True,
+        results: dict | None = None,
+        alpha_threshold: int = 10,
+    ):
         if master:
             results = dict()
-        
+
+        elif results is None:
+            raise ValueError("<results> can only be None if <master> is True.")
+
         pos = (x, y)
         if pos in results:
             return None
@@ -62,30 +80,40 @@ class ImageScanner:
         if (x < 0) or (x >= self.w) or (y < 0) or (y >= self.h):
             return None
 
-        colour = self.img.get_at((x, y))
-        if colour.a > alpha_threshold:
-            results[pos] = (colour.r, colour.g, colour.b)
+        colour = self.img.getpixel((x, y))
+
+        if not isinstance(colour, tuple):
+            raise ValueError()
+
+        r, g, b, a = colour
+
+        if a > alpha_threshold:
+            results[pos] = (r, g, b)
 
             for dy in [-1, 0, 1]:
                 for dx in [-1, 0, 1]:
                     if (dx == 0) and (dy == 0):
                         continue
 
-                    self.__scan_pixels(x+dx, y+dy, False, results, alpha_threshold)
-        
-        return results
-    
-    def mul_colour(self, colour: tuple[int, int, int], factor: float):
-        return tuple(int(i*factor) for i in colour)
+                    self.__scan_pixels(x + dx, y + dy, False, results, alpha_threshold)
 
-    def get_points(self, alpha_threshold: int = 10, auto_brightness: bool = True, auto_brightness_exp: float = 1) -> dict[tuple, tuple]:
+        return results
+
+    def mul_colour(self, colour: tuple[int, int, int], factor: float):
+        return tuple(int(i * factor) for i in colour)
+
+    def get_points(
+        self,
+        alpha_threshold: int = 10,
+        auto_brightness: bool = True,
+        max_depth: int = 1000,
+    ) -> dict[tuple, tuple]:
         """
         Generate a dictionary of points from the provided image. If <auto_brightness> is True,
         the brightness of drones will be proportional to the number of pixels in a dot.
         <auto_brightness_exp> is the exponent of the proportionality. Lower values will result in smaller differences in brightness.
         """
         averages = list()
-        counts = list()
         self.points = dict()
 
         min_x = float("inf")
@@ -108,7 +136,7 @@ class ImageScanner:
                 for x, y in keys:
                     X += x
                     Y += y
-                
+
                 X /= n
                 Y /= n
 
@@ -122,51 +150,54 @@ class ImageScanner:
                     R += r
                     G += g
                     B += b
-                
+
                 R /= n
                 G /= n
                 B /= n
 
-                averages.append((
-                    (X, Y), (R, G, B), n
-                ))
-                
+                averages.append(((X, Y), (R, G, B), n))
+
                 if X < min_x:
                     min_x = X
-            
+
                 elif X > max_x:
                     max_x = X
-                
+
                 if Y < min_y:
                     min_y = Y
-                
+
                 elif Y > max_y:
                     max_y = Y
-        
+
         max_n = max(v[2] for v in averages)
 
         for pos, colour, n in averages:
             self.points[
-                (pos[0] - min_x)/(max_x - min_x), (pos[1] - min_y)/(max_y - min_y)
-            ] = self.mul_colour(colour, (n/max_n)**auto_brightness_exp) if auto_brightness else colour
+                (pos[0] - min_x) / (max_x - min_x), (pos[1] - min_y) / (max_y - min_y)
+            ] = (
+                self.mul_colour(colour, (n / max_n) * max_depth)
+                if auto_brightness
+                else colour
+            )
 
         return self.points
-    
+
     def save_points(self, output_fp: str):
         assert self.points is not None
 
         with open(output_fp, "wb") as file:
             pickle.dump(self.points, file)
-        
+
     def load_points(self, input_fp: str):
         assert os.path.exists(input_fp)
 
         with open(input_fp, "rb") as file:
             self.points = pickle.load(file)
-        
+
         return self.points
-    
+
+
 def convert_time(stamp: datetime) -> int:
     t = stamp.timestamp()
 
-    return int((t + 62135636400)*1e7)
+    return int((t + 62135636400) * 1e7)
