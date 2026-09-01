@@ -1,494 +1,366 @@
-from litebee.utils import uleb128
-from litebee.core import Command
-from pygame.math import Vector3, Vector2
-from math import pi, radians, cos, sin, atan2
+from dataclasses import dataclass
+from math import atan2, cos, pi, radians, sin
 
+from . import types
+
+
+@dataclass(slots=True)
+class Command:
+    flag: types.UnsignedLeb128
+    attributes: dict[types.UnsignedLeb128, types.Attribute | None] | None
+
+    def to_bytes(self):
+        if self.attributes is None:
+            data = b""
+        else:
+            data = (
+                b"".join(
+                    flag.to_bytes() + attr.to_bytes()
+                    for flag, attr in sorted(
+                        self.attributes.items(), key=lambda pair: pair[0]
+                    )
+                    if attr
+                )
+                or b""
+            )
+
+        return self.flag.to_bytes() + types.UnsignedLeb128(len(data)).to_bytes() + data
+
+
+@dataclass(init=False, slots=True)
+class Colour(Command):
+    def __init__(self, colour: tuple[int, int, int]):
+        r, g, b = colour
+
+        super().__init__(
+            flag=types.UnsignedLeb128(858),
+            attributes={
+                0x20: types.UnsignedLeb128(r),
+                0x28: types.UnsignedLeb128(g),
+                0x30: types.UnsignedLeb128(b),
+            },
+        )
+
+
+@dataclass(init=False, slots=True)
+class ColourGradient(Command):
+    def __init__(self, final_colour: tuple[int, int, int], t: float, flicker: int = 0):
+        pass
+
+
+@dataclass(init=False, slots=True)
 class Calibrate(Command):
     """
     Calibrate the drone for <t> seconds. This must be the first command the drone receives.
     """
-    __slots__ = [
-        't'
-    ]
 
-    def __init__(self, t: float = 5.0):
-        self.t = t
-
-        params = [
-            {
-                "flag": 810,
-                "value": 0,
-                "type": "int"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            }
-        ]
-
-        super().__init__(params)
-    
-    def calculate_delta(self, t):
-        return Vector3(0, 0, 0)
+    def __init__(self):
+        super().__init__(flag=types.UnsignedLeb128(810), attributes=None)
 
 
+@dataclass(init=False, slots=True)
 class Takeoff(Command):
     """
     Launch the drone to <height> cm over <t> secnods.
     """
-    __slots__ = [
-        't',
-        'h'
-    ]
 
-    def __init__(self, height: int = 100, t: float = 5.0):
-        self.t = t
-        self.h = height
-
-        params = [
-            {
-                "flag": 818,
-                "value": 1 + len(
-                    uleb128.from_int(height)
-                ),
-                "type": "int"
+    def __init__(self, height):
+        super().__init__(
+            flag=types.UnsignedLeb128(818),
+            attributes={
+                0x20: types.UnsignedLeb128(height),
             },
-            {
-                "flag": 0x20,
-                "value": height,
-                "type": "int"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x01,
-                "type": "int"
-            }
-        ]
+        )
 
-        super().__init__(params)
+    @property
+    def height(self) -> int:
+        return self.attributes.get(0x20, types.UnsignedLeb128()).value
 
-    def calculate_delta(self, t):
-        return Vector3(0, 0, t * self.h)
+    @height.setter
+    def height(self, value: int):
+        self.attributes[0x20] = types.UnsignedLeb128(value)
 
+    def calculate_delta(self, t: float):
+        return types.Vector3(0, 0, t * self.height)
+
+
+@dataclass(init=False, slots=True)
+class Land(Command):
+    """
+    Land the drone. <t> should not be changed from 3 seconds, though it seems to still work.
+    """
+
+    def __init__(self):
+        super().__init__(flag=types.UnsignedLeb128(826), attributes=None)
+
+    def calculate_delta(self, t: float, start_pos: types.Vector3):
+        z = -t * start_pos.z
+        return types.Vector3(0, 0, z)
+
+
+@dataclass(init=False, slots=True)
 class Move3D(Command):
     """
     Move the drone to position <pos(x, y, z)> cm over <t> seconds.
     """
-    __slots__ = [
-        "target",
-        't'
-    ]
 
-    def __init__(self, pos: Vector3, t: float = 10.0):
-        if not isinstance(pos, Vector3):
-            pos = Vector3(pos)
-        
-        self.target = pos
-        self.t = t
-
-        p = Command([
-            {
-                "flag": 0x20,
-                "value": pos.x,
-                "type": "int"
+    def __init__(self, target: types.Vector3):
+        super().__init__(
+            flag=types.UnsignedLeb128(834),
+            attributes={
+                0x20: types.UnsignedLeb128(target.x),
+                0x28: types.UnsignedLeb128(target.y),
+                0x30: types.UnsignedLeb128(target.z),
             },
-            {
-                "flag": 0x28,
-                "value": pos.y,
-                "type": "int"
-            },
-            {
-                "flag": 0x30,
-                "value": pos.z,
-                "type": "int"
-            }
-        ])
-        
-        params = [
-            {
-                "flag": 834,
-                "value": p,
-                "type": "command"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x0A,
-                "type": "int"
-            }
-        ]
+        )
 
-        super().__init__(params)
-    
-    def calculate_delta(self, t):
-        return t * (self.target - self.start_pos)
+    @property
+    def target(self) -> types.Vector3:
+        return types.Vector3(
+            x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
+            y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
+            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
+        )
+
+    @target.setter
+    def target(self, value: types.Vector3):
+        self.attributes[0x20] = types.UnsignedLeb128(value.x)
+        self.attributes[0x28] = types.UnsignedLeb128(value.y)
+        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    def calculate_delta(self, t: float, start_pos):
+        return t * (self.target - start_pos)
 
 
+@dataclass(init=False, slots=True)
 class Around(Command):
     """
     Move the drone around the specified <pos> by 180 degrees <half_num> times.
     """
-    __slots__ = [
-        't',
-        "origin",
-        "radians",
-        "direction"
-    ]
 
-    def __init__(self, pos: Vector2, t: float = 10.0, half_num: int = 1, is_clockwise: bool = True):
-        if not isinstance(pos, Vector3):
-            pos = Vector3(pos)
-        
-        self.origin = pos
-        self.radians = pi * half_num
-        self.direction = -1 if is_clockwise else 1
-        self.t = t
+    def __init__(
+        self,
+        origin: types.Vector2,
+        clockwise: bool,
+        half_rotations: int,
+    ):
 
-        p = Command([
-            {
-                "flag": 0x20,
-                "value": pos.x,
-                "type": "int"
+        super().__init__(
+            flag=types.UnsignedLeb128(842),
+            attributes={
+                0x20: types.UnsignedLeb128(origin.x),
+                0x28: types.UnsignedLeb128(origin.y),
+                0x30: types.UnsignedLeb128(origin.z),
+                0x38: types.UnsignedLeb128(int(clockwise)),
+                0x40: types.UnsignedLeb128(half_rotations),
             },
-            {
-                "flag": 0x28,
-                "value": pos.y,
-                "type": "int"
-            },
-            {
-                "flag": 0x30,
-                "value": pos.z,
-                "type": "int"
-            },
-            {
-                "flag": 0x38,
-                "value": int(is_clockwise),
-                "type": "int"
-            },
-            {
-                "flag": 0x40,
-                "value": half_num,
-                "type": "int"
-            }
-        ])
+        )
 
-        params = [
-            {
-                "flag": 842,
-                "value": p,
-                "type": "command"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x0C,
-                "type": "int"
-            }
-        ]
+    @property
+    def origin(self) -> types.Vector3:
+        return types.Vector3(
+            x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
+            y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
+            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
+        )
 
-        super().__init__(params)
-    
-    def calculate_delta(self, t):
-        delta = self.origin - self.start_pos
+    @origin.setter
+    def origin(self, value: types.Vector3):
+        self.attributes[0x20] = types.UnsignedLeb128(value.x)
+        self.attributes[0x28] = types.UnsignedLeb128(value.y)
+        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    @property
+    def direction(self) -> int:
+        return -1 if self.attributes.get(0x38, types.UnsignedLeb128()) else 1
+
+    @property
+    def radians(self) -> float:
+        return pi * self.attributes.get(0x40, types.UnsignedLeb128()).value
+
+    def calculate_delta(self, t: float, start_pos: types.Vector3):
+        delta = self.origin - start_pos
         r = delta.magnitude()
         ra = atan2(delta.y, delta.x)
 
-        a = ra + self.direction*self.radians*t
-        x = r*cos(a)
-        y = r*sin(a)
+        a = ra + self.direction * self.radians * t
+        x = r * cos(a)
+        y = r * sin(a)
 
-        return Vector3(x, y, 0)
+        return types.Vector3(x, y, 0)
 
 
 class AroundH(Command):
     """
     Move the drone around the specified <pos> in a spiral.
     """
-    __slots__ = [
-        't',
-        "origin",
-        "direction"
-    ]
 
-    def __init__(self, pos: Vector3, t: float = 10.0, is_clockwise: bool = True):
-        self.t = t
-        self.origin = Vector3(pos)
-        self.direction = -1 if is_clockwise else 1
+    def __init__(self, origin: types.Vector3, clockwise: bool):
+        super().__init__(
+            flag=types.UnsignedLeb128(850),
+            attributes={
+                0x20: types.UnsignedLeb128(origin.x),
+                0x28: types.UnsignedLeb128(origin.y),
+                0x30: types.UnsignedLeb128(origin.z),
+                0x38: types.UnsignedLeb128(int(clockwise)),
+            },
+        )
 
-        p = Command([
-            {
-                "flag": 0x20,
-                "value": self.origin.x,
-                "type": "int"
-            },
-            {
-                "flag": 0x28,
-                "value": self.origin.y,
-                "type": "int"
-            },
-            {
-                "flag": 0x30,
-                "value": self.origin.z,
-                "type": "int"
-            },
-            {
-                "flag": 0x38,
-                "value": int(is_clockwise),
-                "type": "int"
-            },
-        ])
+    @property
+    def direction(self) -> bool:
+        return -1 if self.attributes.get(0x38, types.UnsignedLeb128()) else 1
 
-        params = [
-            {
-                "flag": 850,
-                "value": p,
-                "type": "command"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x0D,
-                "type": "int"
-            }
-        ]
+    @property
+    def origin(self) -> types.Vector3:
+        return types.Vector3(
+            x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
+            y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
+            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
+        )
 
-        super().__init__(params)
-    
-    def calculate_delta(self, t):
-        delta = self.origin.xy - self.start_pos.xy
+    @origin.setter
+    def origin(self, value: types.Vector3):
+        self.attributes[0x20] = types.UnsignedLeb128(value.x)
+        self.attributes[0x28] = types.UnsignedLeb128(value.y)
+        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    def calculate_delta(self, t: float, start_pos: types.Vector3):
+        delta = self.origin.xy - start_pos.xy
         r = delta.magnitude()
         ra = atan2(delta.y, delta.x)
 
-        a = ra + self.direction*pi*t
-        x = r*cos(a)
-        y = r*sin(a)
-        z = t*self.origin.z
+        a = ra + self.direction * pi * t
+        x = r * cos(a)
+        y = r * sin(a)
+        z = t * self.origin.z
 
-        return Vector3(x, y, z)
+        return types.Vector3(x, y, z)
 
 
 class AroundD(Command):
     """
     Note that instead of a <height> parameter, the <pos> has an x, y, z (height)
     """
-    __slots__ = [
-        't', 'a',
-        "origin",
-        "direction"
-    ]
 
-    def __init__(self, pos: Vector3, angle: int = 100, t: float = 10.0, is_clockwise: bool = True):
-        self.t = t
-        self.a = radians(angle)
-        self.origin = Vector3(pos)
-        self.direction = -1 if is_clockwise else 1
+    def __init__(
+        self,
+        origin: types.Vector3,
+        clockwise: bool,
+        angle: int,
+    ):
+        super().__init__(
+            flag=types.UnsignedLeb128(866),
+            attributes={
+                0x20: types.UnsignedLeb128(origin.x),
+                0x28: types.UnsignedLeb128(origin.y),
+                0x30: types.UnsignedLeb128(origin.z),
+                0x38: types.UnsignedLeb128(int(clockwise)),
+                0x40: types.UnsignedLeb128(angle),
+            },
+        )
 
-        p = Command([
-            {
-                "flag": 0x20,
-                "value": self.origin.x,
-                "type": "int"
-            },
-            {
-                "flag": 0x28,
-                "value": self.origin.y,
-                "type": "int"
-            },
-            {
-                "flag": 0x30,
-                "value": self.origin.z,
-                "type": "int"
-            },
-            {
-                "flag": 0x38,
-                "value": int(is_clockwise),
-                "type": "int"
-            },
-            {
-                "flag": 0x40,
-                "value": angle,
-                "type": "int"
-            }
-        ])
+    @property
+    def angle(self) -> float:
+        return radians(self.attributes.get(0x40, types.UnsignedLeb128()).value)
 
-        params = [
-            {
-                "flag": 866,
-                "value": p,
-                "type": "command"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x0E,
-                "type": "int"
-            }
-        ]
+    @property
+    def direction(self) -> bool:
+        return -1 if self.attributes.get(0x38, types.UnsignedLeb128()) else 1
 
-        super().__init__(params)
-    
-    def calculate_delta(self, t):
-        delta = self.origin - self.start_pos
+    @property
+    def origin(self) -> types.Vector3:
+        return types.Vector3(
+            x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
+            y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
+            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
+        )
+
+    @origin.setter
+    def origin(self, value: types.Vector3):
+        self.attributes[0x20] = types.UnsignedLeb128(value.x)
+        self.attributes[0x28] = types.UnsignedLeb128(value.y)
+        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    def calculate_delta(self, t: float, start_pos: types.Vector3):
+        delta = self.origin - start_pos
         r = delta.magnitude()
         ra = atan2(delta.y, delta.x)
 
-        a = ra + self.direction*self.a*t
-        x = r*cos(a)
-        y = r*sin(a)
-        z = t*self.origin.z
+        a = ra + self.direction * self.angle * t
+        x = r * cos(a)
+        y = r * sin(a)
+        z = t * self.origin.z
 
-        return Vector3(x, y, z)
-
-
-class Land(Command):
-    """
-    Land the drone. <t> should not be changed from 3 seconds, though it seems to still work.
-    """
-    __slots__ = [
-        't'
-    ]
-
-    def __init__(self, t: float = 3.0):
-        self.t = t
-
-        params = [
-            {
-                "flag": 826,
-                "value": 0,
-                "type": "int"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x02,
-                "type": "int"
-            }
-        ]
-
-        super().__init__(params)
-
-    def calculate_delta(self, t):
-        z = -t*self.start_pos.z
-        return Vector3(0, 0, z)
+        return types.Vector3(x, y, z)
 
 
 class Curve3(Command):
     """
     Move the drone along a Bezier3 curve.
     """
-    __slots__ = [
-        't',
-        "control",
-        "target",
-        "curve"
-    ]
 
-    def __init__(self, target_pos: Vector3, control_point_1: Vector3, t: float = 10.0):
-        self.t = t
-        self.control = Vector3(control_point_1)
-        self.target = Vector3(target_pos)
+    def __init__(self, target: types.Vector3, control: types.Vector3):
+        super().__init__(
+            flag=types.UnsignedLeb128(874),
+            attributes={
+                0x20: types.UnsignedLeb128(target.x),
+                0x28: types.UnsignedLeb128(target.y),
+                0x30: types.UnsignedLeb128(target.z),
+                0x40: types.UnsignedLeb128(control.x),
+                0x48: types.UnsignedLeb128(control.y),
+                0x50: types.UnsignedLeb128(control.z),
+            },
+        )
 
-        self.curve = Command([
+    @property
+    def target(self) -> types.Vector3:
+        return types.Vector3(
+            x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
+            y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
+            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
+        )
+
+    @target.setter
+    def target(self, value: types.Vector3):
+        self.attributes[0x20] = types.UnsignedLeb128(value.x)
+        self.attributes[0x28] = types.UnsignedLeb128(value.y)
+        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    @property
+    def control(self) -> types.Vector3:
+        return types.Vector3(
+            x=self.attributes.get(0x40, types.UnsignedLeb128()).value,
+            y=self.attributes.get(0x48, types.UnsignedLeb128()).value,
+            z=self.attributes.get(0x50, types.UnsignedLeb128()).value,
+        )
+
+    @control.setter
+    def control(self, value: types.Vector3):
+        self.attributes[0x40] = types.UnsignedLeb128(value.x)
+        self.attributes[0x48] = types.UnsignedLeb128(value.y)
+        self.attributes[0x50] = types.UnsignedLeb128(value.z)
+
+    def calculate_delta(self, t: float, start_pos: types.Vector3):
+        p0 = types.Vector3(0, 0, 0)
+        p1 = self.control - start_pos
+        p2 = self.target - start_pos
+        return (1 - t) ** 2 * p0 + 2 * t * (1 - t) * p1 + t**2 * p2
+
+    def update(self, start_pos: types.Vector3):
+        a = start_pos + self.calculate_delta(1 / 3)
+        b = start_pos + self.calculate_delta(2 / 3)
+
+        self.attributes.update(
             {
-                "flag": 0x20,
-                "value": self.target.x,
-                "type": "int"
-            },
-            {
-                "flag": 0x28,
-                "value": self.target.y,
-                "type": "int"
-            },
-            {
-                "flag": 0x30,
-                "value": self.target.z,
-                "type": "int"
-            },
-            {
-                "flag": 0x40,
-                "value": self.control.x,
-                "type": "int"
-            },
-            {
-                "flag": 0x48,
-                "value": self.control.y,
-                "type": "int"
-            },
-            {
-                "flag": 0x50,
-                "value": self.control.z,
-                "type": "int"
+                0x58: types.UnsignedLeb128(a.x),
+                0x60: types.UnsignedLeb128(a.y),
+                0x68: types.UnsignedLeb128(a.z),
+                0x70: types.UnsignedLeb128(b.x),
+                0x78: types.UnsignedLeb128(b.y),
+                0x80: types.UnsignedLeb128(b.z),
             }
-        ])
+        )
 
-        params = [
-            {
-                "flag": 874,
-                "value": self.curve,
-                "type": "command"
-            },
-            {
-                "flag": 0x08,
-                "value": 10*t,
-                "type": "int"
-            },
-            {
-                "flag": 0x10,
-                "value": 0x0F,
-                "type": "int"
-            }
-        ]
-
-        super().__init__(params)
-    
-    def calculate_delta(self, t):
-        p0 = Vector3(0, 0, 0)
-        p1 = self.control - self.start_pos
-        p2 = self.target - self.start_pos
-        return (1 - t)**2 * p0 + 2*t*(1 - t) * p1 + t**2 * p2
-
-    def update(self):
-        calculated_positions = [
-            *(self.start_pos + self.calculate_delta(1/3)),
-            *(self.start_pos + self.calculate_delta(2/3))
-        ]
-
-        flags = [
-            0x58, 0x60, 0x68, 0x70, 0x78, 0x80
-        ]
-
-        if any(i < 0 for i in calculated_positions):
-            raise ValueError("Curved path cannot pass through negative space.")
-
-        for flag, value in zip(flags, calculated_positions):
-            self.curve.add_parameter(
-                flag,
-                max(0, int(round(value))),
-                "int"
-            )
+    def to_bytes(self, start_pos: types.Vector3):
+        self.update()
+        return super().to_bytes()
