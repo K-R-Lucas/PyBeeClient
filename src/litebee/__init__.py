@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from . import types
 from .commands import Command
-from .instructions import Drone, Instruction
+from .instructions import Drone, Instruction, Move3D
 from .utils import convert_time
 
 
@@ -128,22 +128,20 @@ class Case(Instruction):
             )
         )
 
-    def add_drone(self, start_pos: tuple[float, float] | None = None):
+    def add_drone(self, start_pos: types.Vector2 | None = None):
         """
         Add a drone to the light show.
         Takes a start position in centimetres.
         """
         if start_pos is None:
-            x = 0.5 * (
-                100 * self.gx - int(self.takeoff_w) * self.takeoff_spacing
-            ) + self.takeoff_spacing * (self.drone_count % int(self.takeoff_w + 1))
-            y = 0.5 * (
-                100 * self.gy - int(self.takeoff_h) * self.takeoff_spacing
-            ) + self.takeoff_spacing * (self.drone_count // int(self.takeoff_w + 1))
-        else:
-            x, y = start_pos
+            start_pos = types.Vector2(
+                x=0.5 * (100 * self.gx - int(self.takeoff_w) * self.takeoff_spacing)
+                + self.takeoff_spacing * (self.drone_count % int(self.takeoff_w + 1)),
+                y=0.5 * (100 * self.gy - int(self.takeoff_h) * self.takeoff_spacing)
+                + self.takeoff_spacing * (self.drone_count // int(self.takeoff_w + 1)),
+            )
 
-        drone = Drone(self.drone_count, types.Vector3(x, y, 0))
+        drone = Drone(self.drone_count, types.Vector3(start_pos.x, start_pos.y, 0))
         self.drones.append(drone)
         self.instructions.append(drone)
         self.drone_count += 1
@@ -200,3 +198,69 @@ class Case(Instruction):
     def reset_simulation_state(self):
         for drone in self.drones:
             drone.reset_simulation()
+
+    def fix_collisions(self, resolution: float, avoidance_radius: float):
+        t = 0
+
+        self.reset_simulation_state()
+
+        total = len(self.drones)
+
+        while drones := [
+            drone for drone in self.drones if drone.simulate_step(resolution)
+        ]:
+            t += resolution
+
+            remaining = len(drones)
+
+            for i in range(len(drones)):
+                print(
+                    f"{remaining}/{total} ({100 * remaining / total}%) CHK: {i} T: {t}                \r",
+                    end="",
+                )
+                drone1 = drones[i]
+                instruction1 = drone1.instructions[drone1.sim_instruction]
+
+                if (
+                    drone1.sim_pos.distance_squared_to(drone1.sim_ref_pos)
+                    <= avoidance_radius**2
+                ):
+                    continue
+
+                for j in range(i + 1, len(drones)):
+                    drone2 = drones[j]
+                    instruction2 = drone2.instructions[drone2.sim_instruction]
+
+                    correction_time = 0
+                    while True:
+                        if (
+                            drone1.sim_pos.distance_squared_to(drone2.sim_pos)
+                            > avoidance_radius**2
+                        ):
+                            break
+
+                        correction_time += resolution
+
+                        if correction_time >= 5:
+                            break
+
+                        from_ = drone1.sim_pos.copy()
+                        instruction1.duration = instruction1.duration + (
+                            resolution * 1.01
+                        )
+                        drone1.reset_simulation()
+
+                        t_new = 0
+                        while t_new < t:
+                            drone1.simulate_step(resolution)
+                            t_new += resolution
+
+                    # if correction_time:
+                    #     drone2.insert_instruction(
+                    #         drone2.sim_instruction + 1,
+                    #         Move3D(
+                    #             drone2.instructions[
+                    #                 drone2.sim_instruction
+                    #             ].calculate_pos(1)
+                    #         ),
+                    #     )

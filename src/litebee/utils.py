@@ -135,7 +135,7 @@ class ImageScanner:
             self.points[
                 Vector3(
                     x=1 - (pos[0] - min_x) / (max_x - min_x),
-                    y=1 - (r - min_r) / (max_r - min_r),
+                    y=(r - min_r) / (max_r - min_r),
                     z=(pos[1] - min_y) / (max_y - min_y),
                 )
             ] = colour
@@ -170,10 +170,13 @@ def scale_points(
     min_depth, max_depth = depth_range
 
     for pos, colour in points.items():
-        new_pos: Vector2 = bounding_box.bottom_left + pos.xz * bounding_box.size
-        new[
-            Vector3(new_pos.x, pos.y * (max_depth - min_depth) + min_depth, new_pos.y)
-        ] = colour
+        new_pos = Vector3(
+            x=bounding_box.x + pos.x * bounding_box.width,
+            y=min_depth + pos.y * (max_depth - min_depth),
+            z=bounding_box.y + pos.z * bounding_box.height,
+        )
+
+        new[new_pos] = colour
 
     return new
 

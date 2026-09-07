@@ -5,9 +5,15 @@ from struct import pack
 from typing import Any, overload
 
 
-@dataclass(slots=True)
+@dataclass(init=False, slots=True)
 class UnsignedLeb128:
     value: int = 0
+
+    def __init__(self, value: int = 0):
+        if value < 0:
+            print(value)
+
+        self.value = max(value, 0)
 
     def __bool__(self):
         return bool(self.value)
@@ -309,11 +315,11 @@ class Rect:
 
     @property
     def top(self):
-        return self.y - self.height
+        return self.y + self.height
 
     @top.setter
     def top(self, v: float):
-        self.y = v + self.height
+        self.y = v - self.height
 
     @property
     def bottom(self):
@@ -325,7 +331,7 @@ class Rect:
 
     @property
     def top_left(self):
-        return Vector2(self.x, self.y)
+        return Vector2(self.x, self.y + self.height)
 
     @top_left.setter
     def top_left(self, v: Vector2):
@@ -334,7 +340,7 @@ class Rect:
 
     @property
     def top_right(self):
-        return Vector2(self.x + self.width, self.y)
+        return Vector2(self.x + self.width, self.y + self.height)
 
     @top_right.setter
     def top_right(self, v: Vector2):

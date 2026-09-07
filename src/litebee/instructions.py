@@ -73,6 +73,7 @@ class Drone(Instruction):
         self.instructions = []
         self.commands = []
         self.start_pos = pos.copy()
+        self.end_pos = None
         self.duration = 0
         self.reset_simulation()
 
@@ -89,6 +90,12 @@ class Drone(Instruction):
 
     def add_instruction(self, instruction: "Instruction"):
         self.instructions.append(instruction)
+        self.calculate_key_points()
+        self.sim_pos = self.sim_ref_pos.copy()
+        return self
+
+    def insert_instruction(self, index: int, instruction: "Instruction"):
+        self.instructions.insert(index, instruction)
         self.calculate_key_points()
         self.sim_pos = self.sim_ref_pos.copy()
         return self
@@ -145,7 +152,7 @@ class Colour(Instruction):
     def __init__(self, flag: int, colour: tuple[int, int, int], delay: float = 0):
         super().__init__(
             flag=types.UnsignedLeb128(flag),
-            attributes={},
+            attributes={0x10: types.UnsignedLeb128(0x33)},
             commands=[commands.Colour(colour)],
         )
 
@@ -300,3 +307,7 @@ class Curve3(Instruction):
 
     def calculate_pos(self, t: float):
         return self.start_pos + self.path.calculate_delta(t, self.start_pos)
+
+    def to_bytes(self):
+        self.path.update(self.start_pos)
+        return super().to_bytes()

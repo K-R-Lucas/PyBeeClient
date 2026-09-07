@@ -15,7 +15,7 @@ class Command:
         else:
             data = (
                 b"".join(
-                    flag.to_bytes() + attr.to_bytes()
+                    types.UnsignedLeb128(flag).to_bytes() + attr.to_bytes()
                     for flag, attr in sorted(
                         self.attributes.items(), key=lambda pair: pair[0]
                     )
@@ -347,8 +347,8 @@ class Curve3(Command):
         return (1 - t) ** 2 * p0 + 2 * t * (1 - t) * p1 + t**2 * p2
 
     def update(self, start_pos: types.Vector3):
-        a = start_pos + self.calculate_delta(1 / 3)
-        b = start_pos + self.calculate_delta(2 / 3)
+        a = start_pos + self.calculate_delta(1 / 3, start_pos)
+        b = start_pos + self.calculate_delta(2 / 3, start_pos)
 
         self.attributes.update(
             {
@@ -360,7 +360,3 @@ class Curve3(Command):
                 0x80: types.UnsignedLeb128(b.z),
             }
         )
-
-    def to_bytes(self, start_pos: types.Vector3):
-        self.update()
-        return super().to_bytes()
