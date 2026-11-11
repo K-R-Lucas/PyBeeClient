@@ -14,20 +14,28 @@ class Instruction:
     end_pos: types.Vector3 | None = field(init=False, default_factory=types.Vector3)
 
     @property
-    def duration(self) -> float:
-        return self.attributes.get(0x08, types.UnsignedLeb128()).value / 10.0
+    def duration(self) -> int:
+        return self.attributes.get(0x08, types.UnsignedLeb128()).value
 
     @duration.setter
-    def duration(self, value: float):
-        self.attributes[0x08] = types.UnsignedLeb128(int(value * 10))
+    def duration(self, value: int):
+        self.attributes[0x08] = types.UnsignedLeb128(int(value))
 
-    def add_rgb(self, colour: tuple[int, int, int], delay: float = 0):
+    def add_rgb(self, colour: tuple[int, int, int], delay: int = 0):
         self.instructions.extend(
             [Colour(0x1A, colour, delay), Colour(0x22, colour, delay)]
         )
         return self
 
+    def add_gradient(
+        self, colour: tuple[int, int, int], duration: int = 30, flicker: bool = False, flicker_freq: int = 2,
+    ):
+        self.instructions.append(ColourGradient(colour, duration, flicker, flicker_freq))
+        return self
+
     def calculate_pos(self, t: float) -> types.Vector3: ...
+
+    def calculate_colour(self, t: float) -> tuple[int, int, int]: ...
 
     def to_bytes(self):
         data = (
@@ -61,6 +69,7 @@ class Drone(Instruction):
     sim_ref_pos: types.Vector3
     sim_instruction: int
     sim_instruction_start_time: float
+    sim_colour: tuple[int, int, int]
 
     def __init__(self, number: int, pos: types.Vector3):
         self.attributes = {
@@ -107,6 +116,7 @@ class Drone(Instruction):
 
     def reset_simulation(self):
         self.sim_time = 0
+        self.sim_colour = (0, 0, 0)
         self.sim_pos = self.start_pos.copy()
         self.sim_ref_pos = self.start_pos.copy()
         self.sim_instruction = 0
@@ -116,7 +126,7 @@ class Drone(Instruction):
             instruction.start_pos = None
             instruction.end_pos = None
 
-    def simulate_step(self, dt: float):
+    def simulate_step(self, dt: int):
         if not self.instructions:
             return False
 
@@ -149,7 +159,7 @@ class Drone(Instruction):
 
 @dataclass(init=False, slots=True)
 class Colour(Instruction):
-    def __init__(self, flag: int, colour: tuple[int, int, int], delay: float = 0):
+    def __init__(self, flag: int, colour: tuple[int, int, int], delay: int = 0):
         super().__init__(
             flag=types.UnsignedLeb128(flag),
             attributes={0x10: types.UnsignedLeb128(0x33)},
@@ -163,8 +173,22 @@ class Colour(Instruction):
 
 
 @dataclass(init=False, slots=True)
+class ColourGradient(Instruction):
+    def __init__(
+        self, colour: tuple[int, int, int], duration: int = 30, flicker: bool = False, flicker_freq: int = 2
+    ):
+        super().__init__(
+            flag=types.UnsignedLeb128(0x22),
+            attributes={0x10: types.UnsignedLeb128(0x10)},
+            commands=[commands.ColourGradient(colour, flicker, flicker_freq)],
+        )
+
+        self.duration = duration
+
+
+@dataclass(init=False, slots=True)
 class Calibrate(Instruction):
-    def __init__(self, duration: float = 5.0):
+    def __init__(self, duration: int = 5.0):
         super().__init__(
             flag=types.UnsignedLeb128(0x32), commands=[commands.Calibrate()]
         )
@@ -178,7 +202,7 @@ class Calibrate(Instruction):
 class Takeoff(Instruction):
     path: commands.Takeoff
 
-    def __init__(self, height: int = 100, duration: float = 5.0):
+    def __init__(self, height: int = 100, duration: int = 50):
         self.path = commands.Takeoff(height)
         super().__init__(
             flag=types.UnsignedLeb128(0x32),
@@ -195,7 +219,7 @@ class Takeoff(Instruction):
 class Land(Instruction):
     path: commands.Land
 
-    def __init__(self, duration: float = 3.0):
+    def __init__(self, duration: int = 30):
         self.path = commands.Land()
         super().__init__(
             flag=types.UnsignedLeb128(0x32),
@@ -212,7 +236,7 @@ class Land(Instruction):
 class Move3D(Instruction):
     path: commands.Move3D
 
-    def __init__(self, target: types.Vector3, duration: float = 10.0):
+    def __init__(self, target: types.Vector3, duration: int = 100):
         self.path = commands.Move3D(target)
         super().__init__(
             flag=types.UnsignedLeb128(0x32),
@@ -234,7 +258,7 @@ class Around(Instruction):
         origin: types.Vector2,
         clockwise: bool = True,
         half_rotations: int = 1,
-        duration: float = 10.0,
+        duration: int = 100,
     ):
         self.path = commands.Around(origin, clockwise, half_rotations)
         super().__init__(
@@ -245,7 +269,7 @@ class Around(Instruction):
         self.duration = duration
 
     def calculate_pos(self, t: float):
-        return self.start_pos + self.path.calculate_delta(t)
+        return self.path.calculate_delta(t)
 
 
 @dataclass(init=False, slots=True)
@@ -253,7 +277,7 @@ class AroundH(Instruction):
     path: commands.AroundH
 
     def __init__(
-        self, origin: types.Vector2, clockwise: bool = True, duration: float = 10.0
+        self, origin: types.Vector2, clockwise: bool = True, duration: int = 100
     ):
         self.path = commands.AroundH(origin, clockwise)
         super().__init__(
@@ -264,7 +288,7 @@ class AroundH(Instruction):
         self.duration = duration
 
     def calculate_pos(self, t: float):
-        return self.start_pos + self.path.calculate_delta(t, self.start_pos)
+        return self.path.calculate_delta(t, self.start_pos)
 
 
 @dataclass(init=False, slots=True)
@@ -274,11 +298,12 @@ class AroundD(Instruction):
     def __init__(
         self,
         origin: types.Vector2,
+        height: int,
         clockwise: bool = True,
         degrees: int = 100,
-        duration: float = 10.0,
+        duration: int = 100,
     ):
-        self.path = commands.AroundD(origin, clockwise, degrees)
+        self.path = commands.AroundD(origin, height, clockwise, degrees)
         super().__init__(
             flag=types.UnsignedLeb128(0x32),
             attributes={0x10: types.UnsignedLeb128(0x0E)},
@@ -287,7 +312,7 @@ class AroundD(Instruction):
         self.duration = duration
 
     def calculate_pos(self, t: float):
-        return self.start_pos + self.path.calculate_delta(t, self.start_pos)
+        return self.path.calculate_delta(t, self.start_pos)
 
 
 @dataclass(init=False, slots=True)
@@ -295,7 +320,7 @@ class Curve3(Instruction):
     path: commands.Curve3
 
     def __init__(
-        self, target: types.Vector3, control: types.Vector3, duration: float = 10.0
+        self, target: types.Vector3, control: types.Vector3, duration: int = 100
     ):
         self.path = commands.Curve3(target, control)
         super().__init__(

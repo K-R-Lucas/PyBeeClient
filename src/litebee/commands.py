@@ -44,8 +44,19 @@ class Colour(Command):
 
 @dataclass(init=False, slots=True)
 class ColourGradient(Command):
-    def __init__(self, final_colour: tuple[int, int, int], t: float, flicker: int = 0):
-        pass
+    def __init__(self, colour: tuple[int, int, int], flicker: bool = False, flicker_freq: int = 2):
+        r, g, b = colour
+
+        super().__init__(
+            flag=types.UnsignedLeb128(882),
+            attributes={
+                0x20: types.UnsignedLeb128(r),
+                0x28: types.UnsignedLeb128(g),
+                0x30: types.UnsignedLeb128(b),
+                0x38: types.UnsignedLeb128(int(flicker)),
+                0x40: types.UnsignedLeb128(flicker_freq),
+            },
+        )
 
 
 @dataclass(init=False, slots=True)
@@ -179,15 +190,15 @@ class Around(Command):
         return pi * self.attributes.get(0x40, types.UnsignedLeb128()).value
 
     def calculate_delta(self, t: float, start_pos: types.Vector3):
-        delta = self.origin - start_pos
-        r = delta.magnitude()
-        ra = atan2(delta.y, delta.x)
+            delta = start_pos.xy - self.origin
+            r = delta.length()
+            ra = atan2(delta.y, delta.x)
+            a = ra + self.direction * self.radians * t
 
-        a = ra + self.direction * self.radians * t
-        x = r * cos(a)
-        y = r * sin(a)
+            x = self.origin.x + r * cos(a)
+            y = self.origin.y + r * sin(a)
 
-        return types.Vector3(x, y, 0)
+            return types.Vector3(x, y, start_pos.z)
 
 
 class AroundH(Command):
@@ -195,13 +206,13 @@ class AroundH(Command):
     Move the drone around the specified <pos> in a spiral.
     """
 
-    def __init__(self, origin: types.Vector3, clockwise: bool):
+    def __init__(self, origin: types.Vector2, height: float, clockwise: bool):
         super().__init__(
             flag=types.UnsignedLeb128(850),
             attributes={
                 0x20: types.UnsignedLeb128(origin.x),
                 0x28: types.UnsignedLeb128(origin.y),
-                0x30: types.UnsignedLeb128(origin.z),
+                0x30: types.UnsignedLeb128(height),
                 0x38: types.UnsignedLeb128(int(clockwise)),
             },
         )
@@ -211,30 +222,36 @@ class AroundH(Command):
         return -1 if self.attributes.get(0x38, types.UnsignedLeb128()) else 1
 
     @property
-    def origin(self) -> types.Vector3:
+    def origin(self) -> types.Vector2:
         return types.Vector3(
             x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
             y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
-            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
         )
 
     @origin.setter
-    def origin(self, value: types.Vector3):
+    def origin(self, value: types.Vector2):
         self.attributes[0x20] = types.UnsignedLeb128(value.x)
         self.attributes[0x28] = types.UnsignedLeb128(value.y)
-        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    @property
+    def height(self) -> int:
+        return self.attributes.get(0x30, types.UnsignedLeb128()).value
+
+    @height.setter
+    def height(self, value: float):
+        self.attributes[0x30] = types.UnsignedLeb128(value)
 
     def calculate_delta(self, t: float, start_pos: types.Vector3):
-        delta = self.origin.xy - start_pos.xy
-        r = delta.magnitude()
-        ra = atan2(delta.y, delta.x)
+            delta = start_pos.xy - self.origin
+            r = delta.length()
+            ra = atan2(delta.y, delta.x)
+            a = ra + self.direction * pi * t
 
-        a = ra + self.direction * pi * t
-        x = r * cos(a)
-        y = r * sin(a)
-        z = t * self.origin.z
+            x = self.origin.x + r * cos(a)
+            y = self.origin.y + r * sin(a)
+            z = start_pos.z + t * (self.height - start_pos.z)
 
-        return types.Vector3(x, y, z)
+            return types.Vector3(x, y, z)
 
 
 class AroundD(Command):
@@ -244,7 +261,8 @@ class AroundD(Command):
 
     def __init__(
         self,
-        origin: types.Vector3,
+        origin: types.Vector2,
+        height: int,
         clockwise: bool,
         angle: int,
     ):
@@ -253,7 +271,7 @@ class AroundD(Command):
             attributes={
                 0x20: types.UnsignedLeb128(origin.x),
                 0x28: types.UnsignedLeb128(origin.y),
-                0x30: types.UnsignedLeb128(origin.z),
+                0x30: types.UnsignedLeb128(height),
                 0x38: types.UnsignedLeb128(int(clockwise)),
                 0x40: types.UnsignedLeb128(angle),
             },
@@ -268,28 +286,35 @@ class AroundD(Command):
         return -1 if self.attributes.get(0x38, types.UnsignedLeb128()) else 1
 
     @property
-    def origin(self) -> types.Vector3:
-        return types.Vector3(
+    def origin(self) -> types.Vector2:
+        return types.Vector2(
             x=self.attributes.get(0x20, types.UnsignedLeb128()).value,
             y=self.attributes.get(0x28, types.UnsignedLeb128()).value,
-            z=self.attributes.get(0x30, types.UnsignedLeb128()).value,
         )
 
+
     @origin.setter
-    def origin(self, value: types.Vector3):
+    def origin(self, value: types.Vector2):
         self.attributes[0x20] = types.UnsignedLeb128(value.x)
         self.attributes[0x28] = types.UnsignedLeb128(value.y)
-        self.attributes[0x30] = types.UnsignedLeb128(value.z)
+
+    @property
+    def height(self) -> int:
+        return self.attributes.get(0x30, types.UnsignedLeb128()).value
+
+    @height.setter
+    def height(self, value: int):
+        self.attributes[0x30] = types.UnsignedLeb128(value)
 
     def calculate_delta(self, t: float, start_pos: types.Vector3):
-        delta = self.origin - start_pos
-        r = delta.magnitude()
+        delta = start_pos.xy - self.origin
+        r = delta.length()
         ra = atan2(delta.y, delta.x)
-
         a = ra + self.direction * self.angle * t
-        x = r * cos(a)
-        y = r * sin(a)
-        z = t * self.origin.z
+
+        x = self.origin.x + r * cos(a)
+        y = self.origin.y + r * sin(a)
+        z = start_pos.z + t * (self.height - start_pos.z)
 
         return types.Vector3(x, y, z)
 

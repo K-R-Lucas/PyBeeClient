@@ -1,7 +1,7 @@
 import os
 import pickle
 from datetime import datetime
-from math import pi, sqrt
+from math import pi, sqrt, cos
 from sys import setrecursionlimit
 
 import numpy as np
@@ -9,21 +9,36 @@ from PIL import Image
 
 from .types import Rect, Vector2, Vector3
 
-setrecursionlimit(1000)
+setrecursionlimit(5000)
 
 
 class ImageScanner:
-    def __init__(self, image_path: str):
-        if not image_path.lower().endswith(".png"):
-            raise ValueError("Only PNG files can be scanned.")
-
-        try:
-            self.img = Image.open(image_path, formats=["PNG"])
-        except TypeError:
-            raise ValueError("Only PNG files can be scanned.")
-
-        self.w, self.h = self.img.size
+    def __init__(self, image_path: str, cache_dir: str | None = None):
+        self.cached = False
         self.points = None
+        self.aspect = None
+
+        if cache_dir:
+            if not os.path.exists(cache_dir):
+                os.makedirs(cache_dir, mode=0o777, exist_ok=True)
+
+            self.cache_path = os.path.join(cache_dir, os.path.basename(image_path))
+
+            if os.path.exists(self.cache_path):
+                self.load_points(self.cache_path)
+
+            self.cached = True
+
+        if not self.points:
+            if not image_path.lower().endswith(".png"):
+                raise ValueError("Only PNG files can be scanned.")
+
+            try:
+                self.img = Image.open(image_path, formats=["PNG"])
+            except TypeError:
+                raise ValueError("Only PNG files can be scanned.")
+
+            self.w, self.h = self.img.size
 
     def __scan_pixels(
         self,
@@ -74,6 +89,9 @@ class ImageScanner:
         params:
             alpha_threshold: int = 10 -> Any alpha value greater than this will be included in the scan.
         """
+        if self.points:
+            return (self.aspect, self.points)
+
         averages = []
         self.points = {}
 
@@ -132,29 +150,34 @@ class ImageScanner:
                 max_y = max(max_y, Y)
 
         for pos, colour, r in averages:
-            self.points[
-                Vector3(
-                    x=1 - (pos[0] - min_x) / (max_x - min_x),
-                    y=(r - min_r) / (max_r - min_r),
-                    z=(pos[1] - min_y) / (max_y - min_y),
-                )
-            ] = colour
+            normal = Vector3(
+                x=(pos[0] - min_x) / (max_x - min_x),
+                y=1 - (r - min_r) / (max_r - min_r),
+                z=1 - (pos[1] - min_y) / (max_y - min_y),
+            )
+            self.points[normal] = colour
 
-        return (max_x - min_x) / (max_y - min_y), self.points
+        self.aspect = (max_x - min_x) / (max_y - min_y)
+
+        if self.cached:
+            self.save_points(self.cache_path)
+
+        return (self.aspect, self.points)
 
     def save_points(self, output_fp: str):
         assert self.points is not None
+        assert self.aspect is not None
 
         with open(output_fp, "wb") as file:
-            pickle.dump(self.points, file)
+            pickle.dump((self.aspect, self.points), file)
 
     def load_points(self, input_fp: str):
         assert os.path.exists(input_fp)
 
         with open(input_fp, "rb") as file:
-            self.points = pickle.load(file)
+            self.aspect, self.points = pickle.load(file)
 
-        return self.points
+        return self.aspect, self.points
 
 
 def convert_time(stamp: datetime) -> int:
@@ -212,7 +235,7 @@ def find_normal(points: list[Vector3]) -> Vector3:
     return Vector3([float(i) for i in vt[-1, :]])
 
 
-def pathfind_drones(drones: list, points: list[Vector3]):
+def pathfind_drones(drones: list, points: list[Vector3], reverse: bool = False):
     point_map = []
 
     for point in points:
@@ -225,7 +248,7 @@ def pathfind_drones(drones: list, points: list[Vector3]):
             point_map.append((min(distances), point))
 
     drones = drones.copy()
-    for _, point in sorted(point_map, key=lambda x: x[0]):
+    for _, point in sorted(point_map, key=lambda x: x[0], reverse=reverse):
         closest = None
         min_d = float("inf")
 
@@ -242,3 +265,60 @@ def pathfind_drones(drones: list, points: list[Vector3]):
                 break
 
         yield drone, point
+
+
+def separate_points(points: list[Vector3], min_distance: float, debug: bool=True):
+    positions = [p.copy() for p in points]
+
+    while True:
+        collisions = 0
+
+        for i, p1 in enumerate(positions):
+            colliding = False
+            deltas = []
+
+            for j, p2 in enumerate(positions):
+                if p1 == p2: continue
+                delta = p1 - p2
+                d = delta.length()
+
+                if d <= min_distance:
+                    collisions += 1
+                    colliding = True
+
+                deltas.append((d, delta))
+
+            if not colliding:
+                continue
+
+            max_d = max(d for d, delta in deltas)
+            f = Vector3(0, 0, 0)
+
+            for d, delta in deltas:
+                x = d/max_d
+                influence = delta.normalise() * 0.5*(cos(pi*x) + 1) * pow(1 - x, 10)
+                f += influence
+
+            p = positions[i] + 10*f/len(deltas)
+            positions[i] = p
+
+        if collisions == 0:
+            break
+
+    return positions
+
+
+def alternate_layers(points: list[Vector3], separation: int = 200, layer_height: int = 60) -> list[Vector3]:
+    temp_z = tuple(p.z for p in points)
+    z_min = min(temp_z)
+    z_max = max(temp_z)
+    z_range = z_max - z_min
+    layers = int(z_range / layer_height)
+
+    for p in points:
+        layer = int(layers * (p.z - z_min) / z_range)
+
+        if layer%2:
+            p.y += separation
+
+    return points

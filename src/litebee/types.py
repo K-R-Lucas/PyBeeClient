@@ -1,57 +1,33 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
-from math import cos, radians, sin, sqrt
+from math import atan2, cos, radians, sin, sqrt
 from struct import pack
 from typing import Any, overload
 
-
-@dataclass(init=False, slots=True)
+@dataclass(slots=True)
 class UnsignedLeb128:
     value: int = 0
 
     def __init__(self, value: int = 0):
-        if value < 0:
-            print(value)
-
-        self.value = max(value, 0)
+        self.value = int(value)
 
     def __bool__(self):
         return bool(self.value)
 
     def to_bytes(self):
-        assert self.value >= 0
+        if not -(1 << 63) <= self.value < (1 << 64):
+            raise OverflowError(
+                "Value cannot be represented by this 64-bit varint encoder."
+            )
 
-        byte_list = []
-        value = int(self.value)
-
-        while True:
-            byte: int = 0b01111111 & value
+        value = self.value & ((1 << 64) - 1)
+        data = bytearray()
+        while value >= 0x80:
+            data.append((value & 0x7F) | 0x80)
             value >>= 7
 
-            if value != 0:
-                byte |= 0b10000000
-
-            byte_list.append(byte)
-
-            if value == 0:
-                break
-
-        return bytes(byte_list)
-
-    @staticmethod
-    def from_bytes(data: bytes) -> "UnsignedLeb128":
-        result = 0
-        shift = 0
-
-        for byte in data:
-            result |= (0b01111111 & byte) << shift
-
-            if not (0b10000000 & byte):
-                break
-
-            shift += 7
-
-        return UnsignedLeb128(result)
+        data.append(value)
+        return bytes(data)
 
 
 @dataclass(slots=True)
@@ -147,6 +123,24 @@ class Vector2:
     def copy(self) -> "Vector2":
         return Vector2(self.x, self.y)
 
+    def distance_squared_to(self, other: "Vector2") -> float:
+        return (self.x - other.x)**2 + (self.y - other.y)**2
+
+    def distance_to(self, other: "Vector2") -> float:
+        return sqrt((self.x - other.x)**2 + (self.y - other.y)**2)
+
+    def length_squared(self) -> float:
+        return self.x * self.x + self.y * self.y
+
+    def length(self) -> float:
+        return sqrt(self.x * self.x + self.y * self.y)
+
+    def dot(self, other: "Vector2") -> float:
+        return self.x * other.x + self.y * other.y
+
+    def project(self, other: "Vector2"):
+        return other * (self.dot(other) / other.length_squared())
+
     def __repr__(self) -> str:
         return f"Vector2(x={self.x}, y={self.y})"
 
@@ -235,16 +229,16 @@ class Vector3:
         return Vector3(self.x, self.y, self.z)
 
     def distance_squared_to(self, other: "Vector3") -> float:
-        return pow(self.x - other.x, 2) + pow(self.y - other.y, 2)
+        return (self.x - other.x)**2 + (self.y - other.y)**2 + (self.z - other.z)**2
 
     def distance_to(self, other: "Vector3") -> float:
-        return sqrt(self.distance_squared_to(other))
+        return sqrt((self.x - other.x)**2 + (self.y - other.y)**2 + (self.z - other.z)**2)
 
     def length_squared(self) -> float:
-        return self.x * self.x + self.y * self.y
+        return self.x * self.x + self.y * self.y + self.z * self.z
 
     def length(self) -> float:
-        return sqrt(self.lenth())
+        return sqrt(self.x * self.x + self.y * self.y + self.z * self.z)
 
     def dot(self, other: "Vector3") -> float:
         return self.x * other.x + self.y * other.y + self.z * other.z
@@ -269,6 +263,9 @@ class Vector3:
             + axis.cross(self) * sin(a)
             + axis * axis.dot(self) * (1 - cos(a))
         )
+
+    def angle_between(self, other: "Vector3"):
+        return atan2(self.cross(other).length(), self.dot(other))
 
     def __repr__(self) -> str:
         return f"Vector3(x={self.x}, y={self.y}, z={self.z})"
